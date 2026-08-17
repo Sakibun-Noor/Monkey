@@ -13,6 +13,26 @@ Then open <http://localhost:5179> (use a phone or a mobile-sized viewport).
 `serve.py` exists because `python -m http.server` does not answer HTTP Range
 requests, which leaves `<video>` unseekable.
 
+## Deploying
+
+Static site — no build step, no dependencies. Push this repo to GitHub, then in
+Vercel: **Add New → Project → import the repo → Framework Preset "Other" →
+Deploy.** Leave build command and output directory empty; the repo root is the
+site root. `vercel.json` sets cache headers and `.vercelignore` keeps `serve.py`
+and `tools/` out of the deployment (Vercel's CDN answers Range requests
+natively, so the dev server isn't needed in production).
+
+Assets are cached for a day rather than a year, because the media is still under
+review. Once the tracks and comment wording are final, bump `/assets/(.*)` in
+`vercel.json` to `max-age=31536000, immutable` — but from then on, **rename a
+file when you replace it**, or viewers will keep the cached copy.
+
+Bandwidth is the one thing to watch: a first visit pulls ~9 MB (8 MB video plus
+one narration and one music track). Vercel's Hobby tier gives 100 GB/month —
+roughly 11,000 first visits — and is licensed for non-commercial use only. For
+client work either use a Pro account, or deploy to Cloudflare Pages, which is
+free with unlimited bandwidth and suits video-heavy static sites better.
+
 ---
 
 ## Assets — where each one came from
