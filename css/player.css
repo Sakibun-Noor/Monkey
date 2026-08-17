@@ -1,0 +1,393 @@
+/* Dynamic Monkey Video Player — mobile-only portrait shell. */
+
+:root {
+  --bg: #08090c;
+  --ink: #ffffff;
+  --muted: rgba(255, 255, 255, 0.62);
+  --chip-bg: rgba(10, 12, 16, 0.55);
+  --accent: #ffd23f;
+  --stage-max-w: 460px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  overscroll-behavior: none;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  justify-content: center;
+}
+
+.shell__note {
+  display: none;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- stage -- */
+
+.stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: var(--stage-max-w);
+  overflow: hidden;
+  background: #000;
+  isolation: isolate;
+  touch-action: manipulation;
+}
+
+.stage__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+/* Legibility bed for the comment stack and controls. */
+.stage__scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.55) 0%, rgba(0, 0, 0, 0) 22%),
+    linear-gradient(to top, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.28) 26%,
+                    rgba(0, 0, 0, 0) 52%);
+}
+
+/* ------------------------------------------------------------------ hud -- */
+
+.hud {
+  position: absolute;
+  top: calc(10px + var(--safe-t));
+  left: 12px;
+  right: 12px;
+  z-index: 4;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.hud__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hud__chip {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud__count {
+  margin: 6px 0 0;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------- comments -- */
+
+.comments {
+  position: absolute;
+  left: 12px;
+  bottom: calc(96px + var(--safe-b));
+  z-index: 3;
+  width: min(78%, 330px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+/* Wrapper owns the height animation so older rows glide upward. */
+.comment {
+  overflow: hidden;
+  will-change: height, opacity;
+}
+
+.comment__inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 8px;
+  will-change: transform, opacity;
+}
+
+.comment__avatar {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #23262d;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.75),
+              0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.comment__body {
+  min-width: 0;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 12px rgba(0, 0, 0, 0.45);
+}
+
+.comment__name {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: #fff;
+}
+
+.comment__text {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  overflow-wrap: anywhere;
+}
+
+.comment__emoji {
+  margin-left: 3px;
+  font-size: 14px;
+}
+
+/* -------------------------------------------------------------- bigplay -- */
+
+.bigplay {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 78px;
+  height: 78px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(12, 14, 18, 0.5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18), 0 10px 30px rgba(0, 0, 0, 0.45);
+  color: #fff;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.bigplay svg { width: 34px; height: 34px; fill: currentColor; margin-left: 3px; }
+
+.stage.is-playing .bigplay {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.82);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------- controls -- */
+
+.controls {
+  position: absolute;
+  z-index: 6;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0 12px calc(12px + var(--safe-b));
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.stage.is-idle .controls {
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+}
+
+.stage.is-idle .hud { opacity: 0; }
+
+.scrub {
+  position: relative;
+  height: 26px;
+  display: flex;
+  align-items: center;
+}
+
+.scrub__track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.25);
+  pointer-events: none;
+}
+
+.scrub__buffer,
+.scrub__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  width: 0;
+}
+
+.scrub__buffer { background: rgba(255, 255, 255, 0.3); }
+.scrub__fill { background: var(--accent); }
+
+.scrub__knob {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translateY(-50%);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+
+.scrub__input {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  height: 26px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+
+.scrub__input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 26px;
+  height: 26px;
+}
+
+.controls__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.controls__time {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  margin-right: auto;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.13);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  cursor: pointer;
+  font: inherit;
+  transition: background 0.18s ease, transform 0.12s ease;
+}
+
+.btn:active { transform: scale(0.94); }
+
+.btn--icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  justify-content: center;
+  padding: 0;
+}
+
+.btn--label {
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.btn svg { width: 18px; height: 18px; fill: currentColor; }
+
+.icon-pause, .icon-muted { display: none; }
+.stage.is-playing .icon-play { display: none; }
+.stage.is-playing .icon-pause { display: block; }
+.stage.is-muted .icon-sound { display: none; }
+.stage.is-muted .icon-muted { display: block; }
+
+/* --------------------------------------------------------- orientation -- */
+
+.rotate-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: none;
+  place-items: center;
+  background: var(--bg);
+  text-align: center;
+}
+
+.rotate-gate__icon { font-size: 40px; }
+.rotate-gate p { margin: 10px 0 0; font-weight: 700; }
+
+/* Phones held sideways: the player is portrait-only by design. */
+@media (max-width: 900px) and (orientation: landscape) {
+  .rotate-gate { display: grid; }
+}
+
+/* Anything wider than a phone gets the same portrait stage, letterboxed. */
+@media (min-width: 620px) {
+  body { padding: 20px 0; }
+  .shell { justify-content: center; }
+  .shell__note { display: block; }
+  .stage {
+    height: min(calc(100vh - 80px), calc(var(--stage-max-w) * 16 / 9));
+    aspect-ratio: 9 / 16;
+    width: auto;
+    border-radius: 22px;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .comment, .comment__inner { transition: none !important; }
+}

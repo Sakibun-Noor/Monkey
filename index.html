@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#08090c">
+<meta name="mobile-web-app-capable" content="content">
+<title>Dynamic Monkey Player</title>
+<link rel="icon" href="assets/avatars/steve101.jpg">
+<link rel="stylesheet" href="css/player.css">
+</head>
+<body>
+
+<div class="rotate-gate" aria-hidden="true">
+  <div class="rotate-gate__inner">
+    <div class="rotate-gate__icon">📱</div>
+    <p>Rotate to portrait</p>
+  </div>
+</div>
+
+<main class="shell">
+  <section class="stage" id="stage" aria-label="Monkey video player">
+
+    <video id="video" class="stage__video" playsinline webkit-playsinline muted
+           preload="auto" poster="assets/video/poster.jpg" src="assets/video/monkey.mp4"></video>
+
+    <div class="stage__scrim" aria-hidden="true"></div>
+
+    <!-- Comment overlay: pure HTML/CSS, never baked into the video -->
+    <div class="comments" id="comments" aria-live="polite" aria-label="Live comments"></div>
+
+    <header class="hud" id="hud">
+      <div class="hud__row">
+        <span class="hud__chip" id="chipSet">Set —</span>
+        <span class="hud__chip" id="chipNarrator">Narrator —</span>
+        <span class="hud__chip" id="chipMusic">Music —</span>
+      </div>
+      <p class="hud__count" id="chipCombo"></p>
+    </header>
+
+    <button class="bigplay" id="bigPlay" type="button" aria-label="Play">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19 12z"/></svg>
+    </button>
+
+    <div class="controls" id="controls">
+      <div class="scrub">
+        <div class="scrub__track" id="scrubTrack">
+          <div class="scrub__buffer" id="scrubBuffer"></div>
+          <div class="scrub__fill" id="scrubFill"></div>
+          <div class="scrub__knob" id="scrubKnob"></div>
+        </div>
+        <input class="scrub__input" id="scrub" type="range" min="0" max="1000" value="0"
+               step="1" aria-label="Seek">
+      </div>
+      <div class="controls__row">
+        <button class="btn btn--icon" id="playToggle" type="button" aria-label="Play">
+          <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19 12z"/></svg>
+          <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.2v14H7zm6.8 0H17v14h-3.2z"/></svg>
+        </button>
+        <span class="controls__time" id="time">0:00 / 0:44</span>
+        <button class="btn btn--icon" id="muteToggle" type="button" aria-label="Mute">
+          <svg class="icon-sound" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.2L12 5.4v13.2L7.2 14.5H4zm11.4-1a5 5 0 0 1 0 7v-2a3 3 0 0 0 0-3zm1.6-3.1a8 8 0 0 1 0 13.2v-2a6 6 0 0 0 0-9.2z"/></svg>
+          <svg class="icon-muted" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.2L12 5.4v13.2L7.2 14.5H4zm11.3.1 1.4-1.4 2 2 2-2 1.4 1.4-2 2 2 2-1.4 1.4-2-2-2 2-1.4-1.4 2-2z"/></svg>
+        </button>
+        <button class="btn btn--label" id="replay" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2L7.5 6 12 10V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>
+          <span>New mix</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <p class="shell__note">Portrait phone player — best viewed on a mobile device.</p>
+</main>
+
+<script type="module" src="js/player.js"></script>
+</body>
+</html>

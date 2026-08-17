@@ -1,0 +1,5 @@
+# Dev-only. serve.py exists so local `python -m http.server` isn't used (it has
+# no Range support); Vercel's CDN handles Range natively, so it isn't deployed.
+serve.py
+tools/
+__pycache__/
