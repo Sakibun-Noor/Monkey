@@ -25,6 +25,7 @@
            preload="auto" poster="assets/video/poster.jpg" src="assets/video/monkey.mp4"></video>
 
     <div class="stage__scrim" aria-hidden="true"></div>
+    <div class="stage__fade" id="fade" aria-hidden="true"></div>
 
     <!-- Comment overlay: pure HTML/CSS, never baked into the video -->
     <div class="comments" id="comments" aria-live="polite" aria-label="Live comments"></div>
@@ -39,7 +40,8 @@
     </header>
 
     <button class="bigplay" id="bigPlay" type="button" aria-label="Play">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19 12z"/></svg>
+      <svg class="icon-bigplay" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19 12z"/></svg>
+      <svg class="icon-bigrepeat" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2L7.5 6 12 10V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>
     </button>
 
     <div class="controls" id="controls">
@@ -63,8 +65,14 @@
           <svg class="icon-muted" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.2L12 5.4v13.2L7.2 14.5H4zm11.3.1 1.4-1.4 2 2 2-2 1.4 1.4-2 2 2 2-1.4 1.4-2-2-2 2-1.4-1.4 2-2z"/></svg>
         </button>
         <button class="btn btn--label" id="replay" type="button">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2L7.5 6 12 10V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>
-          <span>New mix</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h3c3.5 0 5 12 8.5 12H21"/>
+            <path d="M3 18h3c3.5 0 5-12 8.5-12H21"/>
+            <polyline points="18,3 21,6 18,9"/>
+            <polyline points="18,15 21,18 18,21"/>
+          </svg>
+          <span>Shuffle</span>
         </button>
       </div>
     </div>

@@ -38,3 +38,23 @@ export const MUSIC_BEDS = [
   {"id": "m09-africa", "label": "Africa", "src": "assets/music/m09-africa.mp3", "duration": 48.0},
   {"id": "m10-drums-tribal", "label": "Drums Tribal", "src": "assets/music/m10-drums-tribal.mp3", "duration": 48.0},
 ];
+
+// Monkey ambience, lifted from the video's own audio and speech-cleaned by the
+// freelancer. Verified 08.26.26: speech band -10.3 dB, monkey call band -0.6 dB,
+// i.e. the calls survived. 43.955s against the 44.0s video -- the player's
+// short-track handling covers the 45 ms gap, no looping or stretching.
+export const MONKEY_TRACK = {
+  "id": "monkey-track",
+  "label": "Monkey ambience",
+  "src": "assets/monkey/monkey-track.mp3",
+  "duration": 43.955
+};
+
+// Ping options sent to the client 08.26.26; pop.wav currently holds ping-1.
+export const PING_OPTIONS = [
+  { "id": "ping-1-clean-beep",  "label": "Clean short beep, 880 Hz" },
+  { "id": "ping-2-high-beep",   "label": "Higher, tighter beep, 1320 Hz" },
+  { "id": "ping-3-soft-beep",   "label": "Soft rounded beep, 1046 Hz" },
+  { "id": "ping-4-double-beep", "label": "Two-step beep, 784 then 1046 Hz" },
+  { "id": "ping-5-blip",        "label": "Very short blip, slight fall" }
+];

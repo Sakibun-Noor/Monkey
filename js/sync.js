@@ -19,10 +19,20 @@ export class TrackSync {
   constructor(el, { volume = 1 } = {}) {
     this.el = el;
     this.baseVolume = volume;
+    this.scale = 1;             // external multiplier, used for the end fade
     this.duration = 0;
     this.ready = false;
     this.enabled = true;
     this._wanted = false;
+  }
+
+  /** Multiplier applied on top of the track's mix level (0..1). */
+  setScale(v) {
+    this.scale = Math.max(0, Math.min(1, v));
+  }
+
+  get level() {
+    return this.baseVolume * this.scale;
   }
 
   /** Point at a new source and resolve once it can play through. */
@@ -31,7 +41,7 @@ export class TrackSync {
     this.duration = duration || 0;
     this.el.pause();
     this.el.playbackRate = 1;
-    this.el.volume = this.baseVolume;
+    this.el.volume = this.level;
     this.el.src = src;
     this.el.load();
 
@@ -101,13 +111,14 @@ export class TrackSync {
     // Track ran out before the video did: stay silent, do not loop or stretch.
     if (this._pastEnd(t)) {
       if (!el.paused) el.pause();
-      el.volume = this.baseVolume;
+      el.volume = this.level;
       return;
     }
 
     if (el.paused && this.ready) {
       this._wanted = true;
       this._seek(t);
+      el.volume = this.level;
       const p = el.play();
       if (p && p.catch) p.catch(() => {});
       return;
@@ -131,8 +142,8 @@ export class TrackSync {
     // Soften the moment a short track hits its own end.
     const left = this.duration - t;
     el.volume = left < TAIL_FADE
-      ? this.baseVolume * Math.max(0, left / TAIL_FADE)
-      : this.baseVolume;
+      ? this.level * Math.max(0, left / TAIL_FADE)
+      : this.level;
   }
 
   _pastEnd(t) {

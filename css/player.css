@@ -83,6 +83,17 @@ body {
                     rgba(0, 0, 0, 0) 52%);
 }
 
+/* Fade to black across the last second (43s -> 44s), then lifted to reveal
+   the first frame as the end card. */
+.stage__fade {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* ------------------------------------------------------------------ hud -- */
 
 .hud {
@@ -129,7 +140,7 @@ body {
 .comments {
   position: absolute;
   left: 12px;
-  bottom: calc(96px + var(--safe-b));
+  bottom: calc(72px + var(--safe-b));
   z-index: 3;
   width: min(78%, 330px);
   display: flex;
@@ -212,7 +223,9 @@ body {
   transition: opacity 0.22s ease, transform 0.22s ease;
 }
 
-.bigplay svg { width: 34px; height: 34px; fill: currentColor; margin-left: 3px; }
+/* The play triangle needs an optical nudge right; the repeat glyph does not. */
+.bigplay svg { width: 34px; height: 34px; fill: currentColor; }
+.bigplay .icon-bigplay { margin-left: 3px; }
 
 .stage.is-playing .bigplay {
   opacity: 0;
@@ -347,8 +360,21 @@ body {
 }
 
 .btn svg { width: 18px; height: 18px; fill: currentColor; }
+/* Stroked icons (the shuffle glyph) must keep their own fill:none. */
+.btn svg[stroke] { fill: none; }
 
-.icon-pause, .icon-muted { display: none; }
+.icon-pause, .icon-muted, .icon-bigrepeat { display: none; }
+.stage.is-ended .icon-bigplay { display: none; }
+.stage.is-ended .icon-bigrepeat { display: block; }
+
+/* End card: first frame held, repeat icon centred, comments cleared. */
+.stage.is-ended .bigplay {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+  pointer-events: auto;
+}
+
+.stage.is-ended .hud { opacity: 0; }
 .stage.is-playing .icon-play { display: none; }
 .stage.is-playing .icon-pause { display: block; }
 .stage.is-muted .icon-sound { display: none; }

@@ -5,14 +5,22 @@
  * 1 of 10 narrators x 1 of 10 music beds x 1 of 40 comment sets = 4,000 mixes.
  */
 
-import { VIDEO, POP_SFX, NARRATORS, MUSIC_BEDS } from '../data/media.js';
+import { VIDEO, POP_SFX, NARRATORS, MUSIC_BEDS, MONKEY_TRACK } from '../data/media.js';
 import { COMMENTERS, COMMENT_SETS } from '../data/comment-sets.js';
 import { TrackSync } from './sync.js';
 import { CommentLayer } from './comments.js';
 import { Pop } from './pop.js';
 
-const MUSIC_VOLUME = 0.26;      // bed sits under the narration
+// Loudness order fixed by the client, 08.25.26:
+//   narrator > monkey sounds > music > click.
+// Monkey sits just under the narrator ("almost same volume ... but shouldn't be
+// as loud or louder"), music is a background bed, the click is barely audible.
 const NARRATION_VOLUME = 1.0;
+const MONKEY_VOLUME = 0.72;
+const MUSIC_VOLUME = 0.12;
+const POP_VOLUME = 0.14;
+
+const FADE_START = 43;          // video fades to black across the last second
 const IDLE_MS = 2600;           // controls auto-hide while playing
 
 const $ = (id) => document.getElementById(id);
@@ -33,11 +41,13 @@ const els = {
   chipNarrator: $('chipNarrator'),
   chipMusic: $('chipMusic'),
   chipCombo: $('chipCombo'),
+  fade: $('fade'),
 };
 
 const narrationEl = new Audio();
 const musicEl = new Audio();
-for (const a of [narrationEl, musicEl]) {
+const monkeyEl = new Audio();
+for (const a of [narrationEl, musicEl, monkeyEl]) {
   a.preload = 'auto';
   a.crossOrigin = 'anonymous';
   a.playsInline = true;
@@ -45,13 +55,16 @@ for (const a of [narrationEl, musicEl]) {
 
 const narration = new TrackSync(narrationEl, { volume: NARRATION_VOLUME });
 const music = new TrackSync(musicEl, { volume: MUSIC_VOLUME });
-const pop = new Pop(POP_SFX, { volume: 0.45 });
+const monkey = new TrackSync(monkeyEl, { volume: MONKEY_VOLUME });
+const tracks = [narration, music, monkey];
+const pop = new Pop(POP_SFX, { volume: POP_VOLUME });
 const commentLayer = new CommentLayer($('comments'), COMMENTERS, {
   onPop: () => pop.play(),
 });
 
-// The base video keeps its own quiet ambience out of the mix; narration and
-// music are the soundtrack. Flip to false to blend the location audio back in.
+// The video's own location audio stays out of the mix -- it is the source of the
+// human conversations the client wants gone. The monkey sounds come back in via
+// `monkey`, a speech-cleaned pass over that same audio.
 video.muted = true;
 
 const state = {
@@ -119,23 +132,21 @@ function paintCombo({ narrator, music: bed, set }) {
 function play() {
   if (state.loading) return;
   pop.unlock();  // fire and forget
+  stage.classList.remove('is-ended');
   const t = video.currentTime;
   // Prime inside the gesture so iOS/Android allow the audio to start.
-  narration.primeFromGesture(t);
-  music.primeFromGesture(t);
+  for (const tr of tracks) tr.primeFromGesture(t);
   const p = video.play();
   if (p && p.catch) {
     p.catch(() => {
-      narration.pause();
-      music.pause();
+      for (const tr of tracks) tr.pause();
     });
   }
 }
 
 function pause() {
   video.pause();
-  narration.pause();
-  music.pause();
+  for (const tr of tracks) tr.pause();
 }
 
 function toggle() {
@@ -145,19 +156,19 @@ function toggle() {
 /** Replay: rewind and roll a brand new, non-repeating combination. */
 async function newMix() {
   pause();
+  stage.classList.remove('is-ended');
   video.currentTime = 0;
   commentLayer.reset();
   await loadCombo(nextCombo());
-  narration.seekTo(0);
-  music.seekTo(0);
+  for (const tr of tracks) tr.seekTo(0);
   play();
 }
 
 function seekTo(t) {
   const clamped = Math.max(0, Math.min(t, duration()));
+  stage.classList.remove('is-ended');
   video.currentTime = clamped;
-  narration.seekTo(clamped);
-  music.seekTo(clamped);
+  for (const tr of tracks) tr.seekTo(clamped);
   commentLayer.rebuildAt(clamped);
   paintProgress();
 }
@@ -173,11 +184,27 @@ function tick() {
   const playing = !video.paused && !video.ended;
   const live = playing && !state.scrubbing;
 
-  narration.update(t, live);
-  music.update(t, live);
+  // Music and monkey duck away with the picture over the last second. Narration
+  // is left alone -- it is content, and cutting a narrator mid-word sounds broken.
+  const fade = fadeAmount(t);
+  music.setScale(1 - fade);
+  monkey.setScale(1 - fade);
+  els.fade.style.opacity = String(fade);
+
+  for (const tr of tracks) tr.update(t, live);
   if (live) commentLayer.update(t);
 
   paintProgress();
+}
+
+/** 0 before 43s, ramping to 1 at the end of the video. */
+function fadeAmount(t) {
+  if (stage.classList.contains('is-ended')) return 0;
+  // Reach solid black a beat before the end so the cut to the still frame
+  // happens behind a black screen rather than at 90-odd percent opacity.
+  const end = duration() - 0.15;
+  if (t <= FADE_START || end <= FADE_START) return 0;
+  return Math.max(0, Math.min(1, (t - FADE_START) / (end - FADE_START)));
 }
 
 // rAF drives the smooth case; a slow interval keeps audio locked to the video
@@ -229,7 +256,13 @@ function setMuted(m) {
 
 /* ---------------------------------------------------------------- events -- */
 
-els.bigPlay.addEventListener('click', () => { toggle(); bumpIdleTimer(); });
+/** Tapping the picture: shuffle a new mix from the end card, otherwise play/pause. */
+function primaryAction() {
+  if (stage.classList.contains('is-ended')) newMix();
+  else toggle();
+}
+
+els.bigPlay.addEventListener('click', () => { primaryAction(); bumpIdleTimer(); });
 els.playToggle.addEventListener('click', () => { toggle(); bumpIdleTimer(); });
 els.replay.addEventListener('click', () => { newMix(); bumpIdleTimer(); });
 els.muteToggle.addEventListener('click', () => { setMuted(!state.muted); bumpIdleTimer(); });
@@ -237,7 +270,7 @@ els.muteToggle.addEventListener('click', () => { setMuted(!state.muted); bumpIdl
 stage.addEventListener('pointerdown', (e) => {
   if (e.target.closest('.controls') || e.target.closest('.bigplay')) return;
   if (stage.classList.contains('is-idle')) bumpIdleTimer();
-  else toggle();
+  else primaryAction();
   bumpIdleTimer();
 });
 
@@ -277,10 +310,15 @@ video.addEventListener('pause', () => {
   clearTimeout(state.idleTimer);
 });
 
+// End card: black by 44s, then the first frame reappears with a repeat icon.
 video.addEventListener('ended', () => {
-  narration.pause();
-  music.pause();
+  for (const tr of tracks) tr.pause();
+  commentLayer.reset();
+  stage.classList.add('is-ended');
   markIdle(false);
+  clearTimeout(state.idleTimer);
+  video.currentTime = 0;          // frame 0 becomes the still
+  els.fade.style.opacity = '0';
 });
 
 // A seek from anywhere (keyboard, media keys, programmatic) resyncs everything.
@@ -311,6 +349,9 @@ for (const person of COMMENTERS) {
   img.src = person.avatar;
 }
 
+// The monkey bed is the same every playback, so it loads once rather than per mix.
+monkey.load(MONKEY_TRACK.src, MONKEY_TRACK.duration);
+
 loadCombo(nextCombo());
 requestAnimationFrame(rafLoop);
 setInterval(tick, 120);
@@ -318,6 +359,6 @@ paintProgress();
 
 // Exposed for quick manual checks in the console.
 window.monkeyPlayer = {
-  state, play, pause, newMix, seekTo, video, narration, music, commentLayer,
+  state, play, pause, newMix, seekTo, video, narration, music, monkey, commentLayer,
   NARRATORS, MUSIC_BEDS, COMMENT_SETS,
 };
