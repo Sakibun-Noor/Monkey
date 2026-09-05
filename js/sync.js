@@ -115,8 +115,7 @@ export class TrackSync {
       return;
     }
 
-    if (el.paused && this.ready) {
-      this._wanted = true;
+    if (el.paused && this.ready && this._wanted) {
       this._seek(t);
       el.volume = this.level;
       const p = el.play();
