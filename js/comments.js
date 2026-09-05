@@ -30,7 +30,27 @@ export class CommentLayer {
 
   /** Swap in a comment set and clear the screen. */
   setSet(set) {
-    this.comments = [...set.comments].sort((a, b) => a.t - b.t);
+    const raw = [...set.comments].sort((a, b) => a.t - b.t);
+
+    // Regroup comments into pairs with 1-second gaps between each pair.
+    // Pattern: comment, comment, gap(1s), comment, comment, gap(1s), ...
+    this.comments = [];
+    let timeOffset = 0;
+
+    for (let i = 0; i < raw.length; i++) {
+      const pairIndex = Math.floor(i / 2);
+      const inPair = i % 2;
+
+      // Add 1 second gap before each new pair (except the first)
+      if (inPair === 0 && pairIndex > 0) {
+        timeOffset += 1.0;
+      }
+
+      // Preserve relative spacing within the pair, add cumulative offset
+      const adjusted = { ...raw[i], t: raw[i].t + timeOffset };
+      this.comments.push(adjusted);
+    }
+
     this.reset();
   }
 
