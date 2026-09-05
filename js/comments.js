@@ -7,10 +7,10 @@
  * pause freezes the stack and scrubbing rebuilds it exactly.
  */
 
-const MAX_VISIBLE = 3;
-const LIFETIME = 5.0;   // seconds of video time a comment stays up
-const ENTER_MS = 340;
-const EXIT_MS = 300;
+const MAX_VISIBLE = 4;
+const LIFETIME = 8.0;   // seconds of video time a comment stays up
+const ENTER_MS = 420;
+const EXIT_MS = 420;
 
 export class CommentLayer {
   /**
