@@ -227,22 +227,44 @@ body {
 .bigplay svg { width: 34px; height: 34px; fill: currentColor; }
 .bigplay .icon-bigplay { margin-left: 3px; }
 
-.stage.is-playing .bigplay {
+.bigplay:active {
+  transform: translate(-50%, -50%) scale(0.92);
+}
+
+/* While playing the centre button is a pause control that fades out with the
+   rest of the chrome; a tap on the picture brings it back. It stays put while
+   the video is buffering, so the spinner is never hidden mid-stall. */
+.stage.is-idle:not(.is-buffering) .bigplay {
   opacity: 0;
   transform: translate(-50%, -50%) scale(0.82);
   pointer-events: none;
 }
 
-/* A tap during load still lands (queued in JS) but should look like something
-   is happening, not like the button ate the tap. Only pulse while the button
-   is actually visible -- skip it mid-shuffle, when is-playing already hides it. */
-.stage.is-loading:not(.is-playing) .bigplay {
-  animation: bigplay-pulse 1s ease-in-out infinite;
+/* Spinner ring: shown while a mix is loading or the video is buffering, in
+   place of whichever icon would otherwise be there. Replaces an opacity pulse
+   on the play icon, which read as a glitch rather than as "working". */
+.bigplay::after {
+  content: '';
+  position: absolute;
+  inset: 14px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.22);
+  border-top-color: #fff;
+  opacity: 0;
+  pointer-events: none;
 }
 
-@keyframes bigplay-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
+.stage.is-loading .bigplay svg,
+.stage.is-buffering .bigplay svg { display: none; }
+
+.stage.is-loading .bigplay::after,
+.stage.is-buffering .bigplay::after {
+  opacity: 1;
+  animation: bigplay-spin 0.9s linear infinite;
+}
+
+@keyframes bigplay-spin {
+  to { transform: rotate(360deg); }
 }
 
 /* ------------------------------------------------------------- controls -- */
@@ -280,7 +302,14 @@ body {
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.25);
   pointer-events: none;
+  transition: height 0.15s ease;
 }
+
+/* The bar thickens and the knob grows under a finger, so a drag reads as a
+   drag; the bar also refuses to auto-hide for as long as one is in progress. */
+.stage.is-scrubbing .scrub__track { height: 5px; }
+.stage.is-scrubbing .scrub__knob { width: 18px; height: 18px; margin-left: -9px; }
+.stage.is-scrubbing .controls { opacity: 1; transform: none; pointer-events: auto; }
 
 .scrub__buffer,
 .scrub__fill {
@@ -297,13 +326,14 @@ body {
   position: absolute;
   top: 50%;
   left: 0;
-  width: 12px;
-  height: 12px;
-  margin-left: -6px;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
   border-radius: 50%;
   background: var(--accent);
   transform: translateY(-50%);
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+  transition: width 0.15s ease, height 0.15s ease, margin-left 0.15s ease;
 }
 
 .scrub__input {
@@ -375,7 +405,9 @@ body {
 /* Stroked icons (the shuffle glyph) must keep their own fill:none. */
 .btn svg[stroke] { fill: none; }
 
-.icon-pause, .icon-muted, .icon-bigrepeat { display: none; }
+.icon-pause, .icon-muted, .icon-bigpause, .icon-bigrepeat { display: none; }
+.stage.is-playing .icon-bigplay { display: none; }
+.stage.is-playing .icon-bigpause { display: block; }
 .stage.is-ended .icon-bigplay { display: none; }
 .stage.is-ended .icon-bigrepeat { display: block; }
 
@@ -428,5 +460,5 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .comment, .comment__inner { transition: none !important; }
-  .stage.is-loading:not(.is-playing) .bigplay { animation: none; opacity: 0.6; }
+  .bigplay::after { animation: none !important; }
 }

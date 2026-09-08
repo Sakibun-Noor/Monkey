@@ -3,15 +3,18 @@
  *
  * The old approach corrected three <audio> elements every frame with seeks and
  * playbackRate nudges. On iOS Safari, rAF throttles harder than desktop/Android,
- * so corrections land less often but much harder -- audible clicks and a
+ * so corrections landed less often but much harder -- audible clicks and a
  * "mixed together" quality instead of clean layers.
  *
- * This mixer decodes all three layers into AudioBuffers up front and starts them
+ * This mixer decodes every layer into an AudioBuffer up front and starts them
  * together via AudioBufferSourceNode.start(when, offset) on the AudioContext's
  * own sample-accurate clock. Nothing about the audio is ever seeked or
  * rate-nudged after that -- the caller instead walks the (muted) video onto the
  * audio clock, since drifting a picture is invisible but drifting audio is not.
  */
+
+const FADE_IN = 0.012;   // starting mid-waveform without a ramp clicks
+const FADE_OUT = 0.04;   // likewise stopping; long enough to be silent, short enough to feel instant
 
 export class Mixer {
   constructor() {
@@ -41,13 +44,17 @@ export class Mixer {
   }
 
   /**
-   * Run `fn` once the context is genuinely producing output. Scheduling sources
-   * against a still-suspended context anchors the clock to a frozen currentTime,
-   * so the audio would come in late and sit permanently behind the picture.
+   * Resolve true once the context is genuinely producing output, or false after
+   * `timeoutMs` if it still is not (resume() from outside a gesture just hangs on
+   * iOS). Scheduling sources against a suspended context would anchor the clock
+   * to a frozen currentTime and leave the audio permanently behind the picture.
    */
-  whenRunning(fn) {
-    if (this.ctx.state === 'running') fn();
-    else this.unlock().then(fn);
+  whenRunning(timeoutMs = 1500) {
+    if (this.ctx.state === 'running') return Promise.resolve(true);
+    return Promise.race([
+      this.unlock(),
+      new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+    ]).then(() => this.ctx.state === 'running');
   }
 
   addTrack(name, { volume = 1 } = {}) {
@@ -55,24 +62,31 @@ export class Mixer {
     gain.gain.value = 0;
     gain.connect(this.master);
     this.tracks.set(name, {
-      buffer: null, duration: 0, gain, source: null,
+      buffer: null, duration: 0, gain, source: null, env: null,
       baseVolume: volume, scale: 1, enabled: true, playing: false,
     });
   }
 
-  /** Fetch and decode a source into this track's buffer. Missing/broken audio is silent, not fatal. */
-  async load(name, src) {
-    const track = this.tracks.get(name);
-    track.buffer = null;
+  /** Fetch and decode without touching any track, so the next mix can be warmed in the background. */
+  async decode(src) {
     try {
       const bytes = await (await fetch(src)).arrayBuffer();
-      track.buffer = await this.ctx.decodeAudioData(bytes);
-      track.duration = track.buffer.duration;
+      return await this.ctx.decodeAudioData(bytes);
     } catch (err) {
-      track.duration = 0;
       // Silence on one layer is survivable; silence with no explanation is not.
-      console.warn(`[mix] "${name}" failed to load, playing without it: ${src}`, err);
+      console.warn(`[mix] failed to load, playing without it: ${src}`, err);
+      return null;
     }
+  }
+
+  setBuffer(name, buffer) {
+    const track = this.tracks.get(name);
+    track.buffer = buffer;
+    track.duration = buffer ? buffer.duration : 0;
+  }
+
+  async load(name, src) {
+    this.setBuffer(name, await this.decode(src));
   }
 
   setScale(name, v) {
@@ -106,26 +120,46 @@ export class Mixer {
     this.anchorCtxTime = when;
     this.anchorOffset = t;
     this.running = true;
-    for (const [name, track] of this.tracks) this._startTrack(track, t, when);
+    for (const track of this.tracks.values()) this._startTrack(track, t, when);
   }
 
   _startTrack(track, t, when) {
     this._stopTrack(track);
-    if (!track.buffer || t >= track.duration - 0.02) { track.playing = false; return; }
+    if (!track.buffer || t >= track.duration - 0.02) return;
+
+    // Each source gets its own envelope so a stopping source can fade out on its
+    // own while the replacement fades in on the same track gain.
     const source = this.ctx.createBufferSource();
+    const env = this.ctx.createGain();
     source.buffer = track.buffer;
-    source.connect(track.gain);
+    source.connect(env).connect(track.gain);
+    env.gain.setValueAtTime(0, when);
+    env.gain.linearRampToValueAtTime(1, when + FADE_IN);
     source.start(when, t);
+    source.onended = () => {
+      try { source.disconnect(); env.disconnect(); } catch { /* already gone */ }
+    };
+
     track.source = source;
+    track.env = env;
     track.playing = true;
     this._applyGain(track, true);
   }
 
   _stopTrack(track) {
-    if (track.source) {
-      try { track.source.stop(); } catch { /* already stopped/ended */ }
-      try { track.source.disconnect(); } catch { /* already disconnected */ }
+    const { source, env } = track;
+    if (source) {
+      const now = this.ctx.currentTime;
+      try {
+        env.gain.cancelScheduledValues(now);
+        env.gain.setValueAtTime(env.gain.value, now);
+        env.gain.linearRampToValueAtTime(0, now + FADE_OUT);
+        source.stop(now + FADE_OUT + 0.005);
+      } catch {
+        try { source.stop(); } catch { /* already stopped */ }
+      }
       track.source = null;
+      track.env = null;
     }
     track.playing = false;
   }
@@ -133,15 +167,6 @@ export class Mixer {
   stopAll() {
     this.running = false;
     for (const track of this.tracks.values()) this._stopTrack(track);
-  }
-
-  /**
-   * Reposition during playback. AudioBufferSourceNode can't be seeked in place,
-   * so a live reseek is stop-and-restart; while paused this is a no-op because
-   * the next play() reads its offset fresh from the video element.
-   */
-  seek(t) {
-    if (this.running) this.startAll(t);
   }
 
   /** The shared audio clock: elapsed logical time since the last startAll(). */
