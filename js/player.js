@@ -7,7 +7,7 @@
 
 import { VIDEO, POP_SFX, NARRATORS, MUSIC_BEDS, MONKEY_TRACK } from '../data/media.js';
 import { COMMENTERS, COMMENT_SETS } from '../data/comment-sets.js';
-import { TrackSync } from './sync.js';
+import { Mixer } from './mix.js';
 import { CommentLayer } from './comments.js';
 import { Pop } from './pop.js';
 
@@ -22,6 +22,14 @@ const POP_VOLUME = 0.03;
 
 const FADE_START = 43;          // video fades to black across the last second
 const IDLE_MS = 2600;           // controls auto-hide while playing
+
+// The video is the master timeline everywhere else in this file, but its own
+// clock is now the thing being corrected -- the audio mixer's sample-accurate
+// clock is authoritative, and the (muted) video is walked onto it, since a
+// picture drifting by a few ms is invisible but audio drift is not.
+const HARD_RESYNC = 0.28;  // seconds of drift that warrant a hard seek
+const SOFT_DRIFT = 0.045;  // seconds of drift corrected by rate nudging
+const MAX_NUDGE = 0.03;    // +/- 3% playback rate, capped (client-approved safety margin)
 
 const $ = (id) => document.getElementById(id);
 
@@ -44,20 +52,15 @@ const els = {
   fade: $('fade'),
 };
 
-const narrationEl = new Audio();
-const musicEl = new Audio();
-const monkeyEl = new Audio();
-for (const a of [narrationEl, musicEl, monkeyEl]) {
-  a.preload = 'auto';
-  a.crossOrigin = 'anonymous';
-  a.playsInline = true;
-}
-
-const narration = new TrackSync(narrationEl, { volume: NARRATION_VOLUME });
-const music = new TrackSync(musicEl, { volume: MUSIC_VOLUME });
-const monkey = new TrackSync(monkeyEl, { volume: MONKEY_VOLUME });
-const tracks = [narration, music, monkey];
+const mixer = new Mixer();
+mixer.addTrack('narration', { volume: NARRATION_VOLUME });
+mixer.addTrack('music', { volume: MUSIC_VOLUME });
+mixer.addTrack('monkey', { volume: MONKEY_VOLUME });
 const pop = new Pop(POP_SFX, { volume: POP_VOLUME });
+
+// A hard video resync (below) fires its own 'seeked' event; this flag stops
+// that from being mistaken for a user/external seek and re-triggering the mixer.
+let suppressSeekedSync = false;
 const commentLayer = new CommentLayer($('comments'), COMMENTERS, {
   onPop: () => pop.play(),
 });
@@ -108,8 +111,8 @@ async function loadCombo(combo) {
   paintCombo(combo);
 
   await Promise.all([
-    narration.load(combo.narrator.src, combo.narrator.duration),
-    music.load(combo.music.src, combo.music.duration),
+    mixer.load('narration', combo.narrator.src),
+    mixer.load('music', combo.music.src),
   ]);
   state.loading = false;
 }
@@ -131,22 +134,20 @@ function paintCombo({ narrator, music: bed, set }) {
  */
 function play() {
   if (state.loading) return;
-  pop.unlock();  // fire and forget
+  pop.unlock();    // fire and forget
+  mixer.unlock();  // fire and forget -- resume() is called synchronously inside, satisfying iOS
   stage.classList.remove('is-ended');
   const t = video.currentTime;
-  // Prime inside the gesture so iOS/Android allow the audio to start.
-  for (const tr of tracks) tr.primeFromGesture(t);
+  mixer.startAll(t);
   const p = video.play();
   if (p && p.catch) {
-    p.catch(() => {
-      for (const tr of tracks) tr.pause();
-    });
+    p.catch(() => { mixer.stopAll(); });
   }
 }
 
 function pause() {
   video.pause();
-  for (const tr of tracks) tr.pause();
+  mixer.stopAll();
 }
 
 function toggle() {
@@ -160,7 +161,6 @@ async function newMix() {
   video.currentTime = 0;
   commentLayer.reset();
   await loadCombo(nextCombo());
-  for (const tr of tracks) tr.seekTo(0);
   play();
 }
 
@@ -168,7 +168,7 @@ function seekTo(t) {
   const clamped = Math.max(0, Math.min(t, duration()));
   stage.classList.remove('is-ended');
   video.currentTime = clamped;
-  for (const tr of tracks) tr.seekTo(clamped);
+  mixer.seek(clamped);
   commentLayer.rebuildAt(clamped);
   paintProgress();
 }
@@ -180,21 +180,38 @@ const duration = () =>
 
 /** One pass of the sync loop. Idempotent, so it is safe to call from both drivers. */
 function tick() {
-  const t = video.currentTime;
+  const t = mixer.running ? mixer.now() : video.currentTime;
   const playing = !video.paused && !video.ended;
   const live = playing && !state.scrubbing;
 
   // Music and monkey duck away with the picture over the last second. Narration
   // is left alone -- it is content, and cutting a narrator mid-word sounds broken.
   const fade = fadeAmount(t);
-  music.setScale(1 - fade);
-  monkey.setScale(1 - fade);
+  mixer.setScale('music', 1 - fade);
+  mixer.setScale('monkey', 1 - fade);
   els.fade.style.opacity = String(fade);
 
-  for (const tr of tracks) tr.update(t, live);
+  if (live && mixer.running) walkVideoOntoAudioClock(t);
   if (live) commentLayer.update(t);
 
   paintProgress();
+}
+
+/** Never touch the audio: nudge the muted video's rate so it tracks the mixer's clock. */
+function walkVideoOntoAudioClock(t) {
+  const drift = video.currentTime - t;
+  const mag = Math.abs(drift);
+
+  if (mag > HARD_RESYNC) {
+    suppressSeekedSync = true;
+    video.currentTime = t;
+    video.playbackRate = 1;
+  } else if (mag > SOFT_DRIFT) {
+    const nudge = Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, -drift * 0.5));
+    video.playbackRate = 1 + nudge;
+  } else if (video.playbackRate !== 1) {
+    video.playbackRate = 1;
+  }
 }
 
 /** 0 before 43s, ramping to 1 at the end of the video. */
@@ -247,8 +264,9 @@ function bumpIdleTimer() {
 
 function setMuted(m) {
   state.muted = m;
-  narration.setEnabled(!m);
-  music.setEnabled(!m);
+  mixer.setEnabled('narration', !m);
+  mixer.setEnabled('music', !m);
+  mixer.setEnabled('monkey', !m);
   pop.setMuted(m);
   stage.classList.toggle('is-muted', m);
   els.muteToggle.setAttribute('aria-label', m ? 'Unmute' : 'Mute');
@@ -277,8 +295,7 @@ stage.addEventListener('pointerdown', (e) => {
 scrub.addEventListener('pointerdown', () => {
   state.scrubbing = true;
   state.wasPlaying = !video.paused;
-  narration.pause();
-  music.pause();
+  mixer.stopAll();
 });
 
 scrub.addEventListener('input', () => {
@@ -312,7 +329,7 @@ video.addEventListener('pause', () => {
 
 // End card: black by 44s, then the first frame reappears with a repeat icon.
 video.addEventListener('ended', () => {
-  for (const tr of tracks) tr.pause();
+  mixer.stopAll();
   commentLayer.reset();
   stage.classList.add('is-ended');
   markIdle(false);
@@ -322,10 +339,12 @@ video.addEventListener('ended', () => {
 });
 
 // A seek from anywhere (keyboard, media keys, programmatic) resyncs everything.
+// Our own hard-resync corrections also fire 'seeked', so they set the suppress
+// flag first and this handler swallows exactly one event for that.
 video.addEventListener('seeked', () => {
+  if (suppressSeekedSync) { suppressSeekedSync = false; return; }
   if (state.scrubbing) return;
-  narration.seekTo(video.currentTime);
-  music.seekTo(video.currentTime);
+  mixer.seek(video.currentTime);
   commentLayer.rebuildAt(video.currentTime);
 });
 
@@ -350,7 +369,7 @@ for (const person of COMMENTERS) {
 }
 
 // The monkey bed is the same every playback, so it loads once rather than per mix.
-monkey.load(MONKEY_TRACK.src, MONKEY_TRACK.duration);
+mixer.load('monkey', MONKEY_TRACK.src);
 
 loadCombo(nextCombo());
 requestAnimationFrame(rafLoop);
@@ -359,6 +378,6 @@ paintProgress();
 
 // Exposed for quick manual checks in the console.
 window.monkeyPlayer = {
-  state, play, pause, newMix, seekTo, video, narration, music, monkey, commentLayer,
+  state, play, pause, newMix, seekTo, video, mixer, commentLayer,
   NARRATORS, MUSIC_BEDS, COMMENT_SETS,
 };

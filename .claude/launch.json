@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "monkey-player",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["serve.py", "5178"],
+      "port": 5178
+    }
+  ]
+}
