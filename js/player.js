@@ -77,6 +77,7 @@ const state = {
   wasPlaying: false,
   muted: false,
   loading: false,
+  pendingPlay: false,   // a play tap that landed mid-load, honored once ready
   idleTimer: 0,
 };
 
@@ -104,6 +105,7 @@ const totalCombos = NARRATORS.length * MUSIC_BEDS.length * COMMENT_SETS.length;
 
 async function loadCombo(combo) {
   state.loading = true;
+  stage.classList.add('is-loading');
   state.combo = combo;
   state.last = { narrator: combo.narrator.id, music: combo.music.id, set: combo.set.id };
 
@@ -115,6 +117,7 @@ async function loadCombo(combo) {
     mixer.load('music', combo.music.src),
   ]);
   state.loading = false;
+  stage.classList.remove('is-loading');
 }
 
 function paintCombo({ narrator, music: bed, set }) {
@@ -133,7 +136,8 @@ function paintCombo({ narrator, music: bed, set }) {
  * warm-up must never be able to gate playback.
  */
 function play() {
-  if (state.loading) return;
+  if (state.loading) { state.pendingPlay = true; return; }
+  state.pendingPlay = false;
   pop.unlock();    // fire and forget
   mixer.unlock();  // fire and forget -- resume() is called synchronously inside, satisfying iOS
   stage.classList.remove('is-ended');
@@ -146,6 +150,7 @@ function play() {
 }
 
 function pause() {
+  state.pendingPlay = false;  // most recent tap wins over one still queued from a load
   video.pause();
   mixer.stopAll();
 }
@@ -156,6 +161,9 @@ function toggle() {
 
 /** Replay: rewind and roll a brand new, non-repeating combination. */
 async function newMix() {
+  // A second tap while one shuffle is still loading would start a concurrent
+  // loadCombo() racing the first for the same narration/music track objects.
+  if (state.loading) return;
   pause();
   stage.classList.remove('is-ended');
   video.currentTime = 0;
@@ -353,6 +361,9 @@ document.addEventListener('visibilitychange', () => {
 });
 
 window.addEventListener('keydown', (e) => {
+  // The scrub range input handles its own arrow/space keys; skip so we don't
+  // double-apply the same seek on top of the native slider's own adjustment.
+  if (e.target instanceof HTMLInputElement) return;
   if (e.code === 'Space') { e.preventDefault(); toggle(); bumpIdleTimer(); }
   if (e.code === 'KeyR') { newMix(); }
   if (e.code === 'KeyM') { setMuted(!state.muted); }
@@ -371,7 +382,8 @@ for (const person of COMMENTERS) {
 // The monkey bed is the same every playback, so it loads once rather than per mix.
 mixer.load('monkey', MONKEY_TRACK.src);
 
-loadCombo(nextCombo());
+// A play tap that lands during this first load is queued, same as any other.
+loadCombo(nextCombo()).then(() => { if (state.pendingPlay) play(); });
 requestAnimationFrame(rafLoop);
 setInterval(tick, 120);
 paintProgress();

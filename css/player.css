@@ -233,6 +233,18 @@ body {
   pointer-events: none;
 }
 
+/* A tap during load still lands (queued in JS) but should look like something
+   is happening, not like the button ate the tap. Only pulse while the button
+   is actually visible -- skip it mid-shuffle, when is-playing already hides it. */
+.stage.is-loading:not(.is-playing) .bigplay {
+  animation: bigplay-pulse 1s ease-in-out infinite;
+}
+
+@keyframes bigplay-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
 /* ------------------------------------------------------------- controls -- */
 
 .controls {
@@ -416,4 +428,5 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .comment, .comment__inner { transition: none !important; }
+  .stage.is-loading:not(.is-playing) .bigplay { animation: none; opacity: 0.6; }
 }
