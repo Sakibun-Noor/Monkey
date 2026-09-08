@@ -23,13 +23,31 @@ export class Mixer {
     this.anchorCtxTime = 0;
     this.anchorOffset = 0;
     this.running = false;
+
+    // iOS silences Web Audio with the hardware ring/silent switch unless the page
+    // claims a playback session -- an iPhone with that switch flipped otherwise
+    // plays the video in total silence, with nothing in the console to show why.
+    if (navigator.audioSession) navigator.audioSession.type = 'playback';
   }
 
-  /** Must be triggered synchronously from a user gesture for iOS to unlock audio. */
+  /**
+   * iOS resumes an AudioContext only from inside a real user gesture, and can
+   * interrupt it again later (an incoming call, Siri). Cheap enough to call on
+   * every touch rather than once at startup.
+   */
   async unlock() {
-    if (this.ctx.state === 'suspended') {
-      try { await this.ctx.resume(); } catch { /* stays suspended, retried on next gesture */ }
-    }
+    if (this.ctx.state === 'running') return;
+    try { await this.ctx.resume(); } catch { /* retried on the next gesture */ }
+  }
+
+  /**
+   * Run `fn` once the context is genuinely producing output. Scheduling sources
+   * against a still-suspended context anchors the clock to a frozen currentTime,
+   * so the audio would come in late and sit permanently behind the picture.
+   */
+  whenRunning(fn) {
+    if (this.ctx.state === 'running') fn();
+    else this.unlock().then(fn);
   }
 
   addTrack(name, { volume = 1 } = {}) {
@@ -50,8 +68,10 @@ export class Mixer {
       const bytes = await (await fetch(src)).arrayBuffer();
       track.buffer = await this.ctx.decodeAudioData(bytes);
       track.duration = track.buffer.duration;
-    } catch {
+    } catch (err) {
       track.duration = 0;
+      // Silence on one layer is survivable; silence with no explanation is not.
+      console.warn(`[mix] "${name}" failed to load, playing without it: ${src}`, err);
     }
   }
 

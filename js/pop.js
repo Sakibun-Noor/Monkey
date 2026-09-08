@@ -5,10 +5,12 @@
  * same second), with an HTMLAudio pool as the fallback.
  */
 export class Pop {
-  constructor(src, { volume = 0.5 } = {}) {
+  constructor(src, { volume = 0.5, context = null } = {}) {
     this.src = src;
     this.volume = volume;
-    this.ctx = null;
+    // Shares the mixer's context when given one: a second AudioContext is one
+    // more thing that has to survive iOS unlocking and interruptions.
+    this.ctx = context;
     this.buffer = null;
     this.muted = false;
     this.pool = Array.from({ length: 4 }, () => {
@@ -28,7 +30,7 @@ export class Pop {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
     if (!this.ctx) this.ctx = new Ctx();
-    if (this.ctx.state === 'suspended') {
+    if (this.ctx.state !== 'running') {
       this.ctx.resume().catch(() => {});
     }
     if (this.buffer || this._decoding) return;

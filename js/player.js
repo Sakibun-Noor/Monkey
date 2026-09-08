@@ -23,13 +23,16 @@ const POP_VOLUME = 0.03;
 const FADE_START = 43;          // video fades to black across the last second
 const IDLE_MS = 2600;           // controls auto-hide while playing
 
-// The video is the master timeline everywhere else in this file, but its own
-// clock is now the thing being corrected -- the audio mixer's sample-accurate
-// clock is authoritative, and the (muted) video is walked onto it, since a
-// picture drifting by a few ms is invisible but audio drift is not.
-const HARD_RESYNC = 0.28;  // seconds of drift that warrant a hard seek
-const SOFT_DRIFT = 0.045;  // seconds of drift corrected by rate nudging
-const MAX_NUDGE = 0.03;    // +/- 3% playback rate, capped (client-approved safety margin)
+// The mixer's sample-accurate clock is authoritative and the muted video is
+// walked onto it, never the reverse. Thresholds are deliberately loose: the
+// narration is a voiceover over B-roll, not lip-synced dialogue, so a fifth of a
+// second out is invisible -- whereas seeking the video element is an expensive,
+// visible hitch on iOS, and rewriting playbackRate every frame is what made the
+// picture stutter there.
+const HARD_RESYNC = 1.0;    // only an egregious gap is worth a visible seek
+const SOFT_DRIFT = 0.25;    // below this, leave the picture alone entirely
+const NUDGE_SETTLE = 0.08;  // once nudging, correct down to here before letting go
+const MAX_NUDGE = 0.02;     // +/- 2% playback rate, capped
 
 const $ = (id) => document.getElementById(id);
 
@@ -56,11 +59,27 @@ const mixer = new Mixer();
 mixer.addTrack('narration', { volume: NARRATION_VOLUME });
 mixer.addTrack('music', { volume: MUSIC_VOLUME });
 mixer.addTrack('monkey', { volume: MONKEY_VOLUME });
-const pop = new Pop(POP_SFX, { volume: POP_VOLUME });
+const pop = new Pop(POP_SFX, { volume: POP_VOLUME, context: mixer.ctx });
+
+// Any touch anywhere is a chance to unlock, not just one that reaches play():
+// iOS also interrupts the context on calls and Siri, and a tap that lands during
+// a load returns early. Both handlers no-op once the context is already running.
+const unlockAudio = () => { mixer.unlock(); pop.unlock(); };
+document.addEventListener('pointerdown', unlockAudio, { capture: true });
+document.addEventListener('touchend', unlockAudio, { capture: true });
 
 // A hard video resync (below) fires its own 'seeked' event; this flag stops
 // that from being mistaken for a user/external seek and re-triggering the mixer.
 let suppressSeekedSync = false;
+let nudging = false;
+
+// Last values written to the DOM / audio params, so per-frame work can be skipped
+// when nothing actually moved. repaint() forces the next pass through.
+let lastPct = -1;
+let lastBuffered = -1;
+let lastTimeText = '';
+let lastFade = -1;
+const repaint = () => { lastPct = -1; lastBuffered = -1; lastTimeText = ''; lastFade = -1; };
 const commentLayer = new CommentLayer($('comments'), COMMENTERS, {
   onPop: () => pop.play(),
 });
@@ -78,6 +97,7 @@ const state = {
   muted: false,
   loading: false,
   pendingPlay: false,   // a play tap that landed mid-load, honored once ready
+  playToken: 0,         // invalidates an audio start still waiting on the iOS unlock
   idleTimer: 0,
 };
 
@@ -136,21 +156,37 @@ function paintCombo({ narrator, music: bed, set }) {
  * warm-up must never be able to gate playback.
  */
 function play() {
+  // Unlock before the loading gate, never after it. On a phone the common case
+  // is a tap that lands while the mix is still downloading; if that tap returns
+  // early, the only real user gesture is spent and the deferred play() runs from
+  // a promise callback, which iOS refuses to resume an AudioContext from. The
+  // muted video is allowed to start without a gesture, so the symptom is a video
+  // that plays in complete silence.
+  pop.unlock();
+  mixer.unlock();
+
   if (state.loading) { state.pendingPlay = true; return; }
   state.pendingPlay = false;
-  pop.unlock();    // fire and forget
-  mixer.unlock();  // fire and forget -- resume() is called synchronously inside, satisfying iOS
   stage.classList.remove('is-ended');
-  const t = video.currentTime;
-  mixer.startAll(t);
+
+  const token = ++state.playToken;
   const p = video.play();
   if (p && p.catch) {
     p.catch(() => { mixer.stopAll(); });
   }
+
+  // Anchor the audio to wherever the picture actually is once the context is
+  // truly running -- on iOS the resume handshake can take a beat, and starting
+  // against a frozen clock would leave the two permanently offset.
+  mixer.whenRunning(() => {
+    if (token !== state.playToken || video.paused) return;
+    mixer.startAll(video.currentTime);
+  });
 }
 
 function pause() {
   state.pendingPlay = false;  // most recent tap wins over one still queued from a load
+  state.playToken += 1;       // and invalidates an audio start still waiting on unlock
   video.pause();
   mixer.stopAll();
 }
@@ -178,7 +214,26 @@ function seekTo(t) {
   video.currentTime = clamped;
   mixer.seek(clamped);
   commentLayer.rebuildAt(clamped);
+  repaint();
   paintProgress();
+}
+
+/** Wind everything down and show the end card. Idempotent. */
+function endPlayback() {
+  if (stage.classList.contains('is-ended')) return;
+  state.playToken += 1;
+  mixer.stopAll();
+  video.pause();
+  setVideoRate(1);
+  nudging = false;
+  commentLayer.reset();
+  stage.classList.add('is-ended');
+  markIdle(false);
+  clearTimeout(state.idleTimer);
+  suppressSeekedSync = true;
+  video.currentTime = 0;          // frame 0 becomes the still
+  els.fade.style.opacity = '0';
+  repaint();
 }
 
 const duration = () =>
@@ -194,11 +249,17 @@ function tick() {
 
   // Music and monkey duck away with the picture over the last second. Narration
   // is left alone -- it is content, and cutting a narrator mid-word sounds broken.
+  // This is flat 0 for the first 43 of 44 seconds, so only write when it moves:
+  // re-targeting an AudioParam every frame is pointless work on the audio thread.
   const fade = fadeAmount(t);
-  mixer.setScale('music', 1 - fade);
-  mixer.setScale('monkey', 1 - fade);
-  els.fade.style.opacity = String(fade);
+  if (fade !== lastFade) {
+    mixer.setScale('music', 1 - fade);
+    mixer.setScale('monkey', 1 - fade);
+    els.fade.style.opacity = String(fade);
+    lastFade = fade;
+  }
 
+  if (mixer.running && t >= duration()) endPlayback();
   if (live && mixer.running) walkVideoOntoAudioClock(t);
   if (live) commentLayer.update(t);
 
@@ -213,13 +274,22 @@ function walkVideoOntoAudioClock(t) {
   if (mag > HARD_RESYNC) {
     suppressSeekedSync = true;
     video.currentTime = t;
-    video.playbackRate = 1;
-  } else if (mag > SOFT_DRIFT) {
-    const nudge = Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, -drift * 0.5));
-    video.playbackRate = 1 + nudge;
-  } else if (video.playbackRate !== 1) {
-    video.playbackRate = 1;
+    setVideoRate(1);
+    nudging = false;
+    return;
   }
+
+  // Hysteresis: start correcting at SOFT_DRIFT, but keep going until well inside
+  // it, so the rate isn't flipped on and off around the threshold every frame.
+  if (mag > SOFT_DRIFT) nudging = true;
+  else if (mag < NUDGE_SETTLE) nudging = false;
+
+  if (!nudging) { setVideoRate(1); return; }
+  setVideoRate(1 + Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, -drift * 0.5)));
+}
+
+function setVideoRate(r) {
+  if (Math.abs(video.playbackRate - r) > 0.001) video.playbackRate = r;
 }
 
 /** 0 before 43s, ramping to 1 at the end of the video. */
@@ -239,16 +309,33 @@ function rafLoop() {
   requestAnimationFrame(rafLoop);
 }
 
+// Style writes here land on every frame from two drivers. Skipping the ones that
+// would not change anything keeps the compositor off the critical path on iOS,
+// where this was a real source of stutter.
 function paintProgress() {
   const d = duration();
   const pct = d ? (video.currentTime / d) * 100 : 0;
-  els.fill.style.width = `${pct}%`;
-  els.knob.style.left = `${pct}%`;
-  if (video.buffered.length) {
-    els.buffer.style.width = `${(video.buffered.end(video.buffered.length - 1) / d) * 100}%`;
+
+  if (Math.abs(pct - lastPct) > 0.05) {
+    els.fill.style.width = `${pct}%`;
+    els.knob.style.left = `${pct}%`;
+    if (!state.scrubbing) scrub.value = String(Math.round(pct * 10));
+    lastPct = pct;
   }
-  if (!state.scrubbing) scrub.value = String(Math.round(pct * 10));
-  els.time.textContent = `${clock(video.currentTime)} / ${clock(d)}`;
+
+  if (video.buffered.length) {
+    const buffered = (video.buffered.end(video.buffered.length - 1) / d) * 100;
+    if (Math.abs(buffered - lastBuffered) > 0.5) {
+      els.buffer.style.width = `${buffered}%`;
+      lastBuffered = buffered;
+    }
+  }
+
+  const text = `${clock(video.currentTime)} / ${clock(d)}`;
+  if (text !== lastTimeText) {
+    els.time.textContent = text;
+    lastTimeText = text;
+  }
 }
 
 function clock(s) {
@@ -336,14 +423,15 @@ video.addEventListener('pause', () => {
 });
 
 // End card: black by 44s, then the first frame reappears with a repeat icon.
+// Driven off the audio clock in tick() as well as the video's own event -- with
+// the picture allowed to drift, whichever reaches the end first must not cut the
+// narration off mid-word.
 video.addEventListener('ended', () => {
-  mixer.stopAll();
-  commentLayer.reset();
-  stage.classList.add('is-ended');
-  markIdle(false);
-  clearTimeout(state.idleTimer);
-  video.currentTime = 0;          // frame 0 becomes the still
-  els.fade.style.opacity = '0';
+  if (mixer.running && mixer.now() < duration() - 0.05) {
+    video.pause();   // hold the last frame; tick() ends things when the audio does
+    return;
+  }
+  endPlayback();
 });
 
 // A seek from anywhere (keyboard, media keys, programmatic) resyncs everything.
