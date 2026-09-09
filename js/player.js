@@ -95,6 +95,11 @@ let nudging = false;
 let audioStartPending = false;
 let stalledSince = 0;
 let scrubSeekTimer = 0;
+// The in-flight video.play() promise, if any. Pausing while it is still
+// resolving makes the browser abort it -- which used to be silently
+// swallowed, leaving a tap-happy user's second tap with nothing to show for
+// it. pause() now waits for this to settle before actually pausing.
+let playSettling = null;
 let standby = null;     // Promise<{combo, narration, music}> for the *next* mix, decoded ahead of time
 
 // Last values written to the DOM / audio params, so per-frame work can be skipped
@@ -196,9 +201,20 @@ function play() {
   state.pendingPlay = false;
   stage.classList.remove('is-ended');
   state.playToken += 1;
+  const token = state.playToken;
 
   const p = video.play();
-  if (p && p.catch) p.catch(() => {});
+  playSettling = (p && p.catch) ? p.catch((err) => {
+    // AbortError means something (our own pause(), a seek) cut this off on
+    // purpose -- not a failure. Anything else is usually the element not
+    // quite being ready the instant play() was called, and a retry almost
+    // always lands. Only retry if nothing newer has since superseded this
+    // exact attempt -- `.paused` itself is not a reliable signal here, since
+    // the browser resets it back to true as part of a genuine play() failure.
+    if (err && err.name !== 'AbortError' && token === state.playToken) {
+      return video.play().catch(() => {});
+    }
+  }).finally(() => { playSettling = null; }) : null;
 
   // Audio does not start here. reconcileAudio() starts it the moment the picture
   // is actually rolling, so on a phone that still has to buffer the video, the
@@ -210,8 +226,14 @@ function pause() {
   state.pendingPlay = false;  // most recent tap wins over one still queued from a load
   state.playToken += 1;       // and invalidates an audio start still waiting on unlock
   nudging = false;
-  video.pause();
   mixer.stopAll();
+
+  // Calling video.pause() while its own play() promise is still pending makes
+  // the browser abort that promise -- which used to surface as a tap-happy
+  // second tap seemingly doing nothing. Let the first attempt land, then pause;
+  // the extra frame or two of playback is invisible, an aborted promise was not.
+  if (playSettling) playSettling.then(() => video.pause());
+  else video.pause();
 }
 
 function toggle() {
