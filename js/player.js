@@ -55,6 +55,7 @@ const els = {
   chipMusic: $('chipMusic'),
   chipCombo: $('chipCombo'),
   fade: $('fade'),
+  comments: $('comments'),
 };
 
 const mixer = new Mixer();
@@ -70,7 +71,7 @@ const unlockAudio = () => { mixer.unlock(); pop.unlock(); };
 document.addEventListener('pointerdown', unlockAudio, { capture: true });
 document.addEventListener('touchend', unlockAudio, { capture: true });
 
-const commentLayer = new CommentLayer($('comments'), COMMENTERS, {
+const commentLayer = new CommentLayer(els.comments, COMMENTERS, {
   onPop: () => pop.play(),
 });
 
@@ -272,11 +273,13 @@ function endPlayback() {
   setVideoRate(1);
   nudging = false;
   commentLayer.reset();
+  stage.classList.remove('is-playing');
   stage.classList.add('is-ended');
   markIdle(false);
   clearTimeout(state.idleTimer);
   video.currentTime = 0;          // frame 0 becomes the still
   els.fade.style.opacity = '0';
+  els.comments.style.opacity = '1';
   repaint();
 }
 
@@ -299,6 +302,12 @@ function videoRolling() {
  * Rolling again: start from wherever the video actually is.
  */
 function reconcileAudio(now) {
+  // A wedged context (iOS, after switching apps) still says 'running' but its
+  // clock is stopped. Drop it at once so the picture and comments fall back to
+  // the video's own clock; startAudioAtVideo() revives and rejoins when it can.
+  mixer.checkClock(now);
+  if (mixer.stale && mixer.running) mixer.stopAll();
+
   if (videoRolling()) {
     stalledSince = 0;
     if (!mixer.running && !audioStartPending) startAudioAtVideo();
@@ -344,6 +353,9 @@ function tick() {
     mixer.setScale('music', 1 - fade);
     mixer.setScale('monkey', 1 - fade);
     els.fade.style.opacity = String(fade);
+    // The comment layer sits above the fade overlay, so it has to fade with the
+    // picture itself -- otherwise the stack stays lit on a black screen.
+    els.comments.style.opacity = String(1 - fade);
     lastFade = fade;
   }
 
@@ -356,7 +368,7 @@ function tick() {
 
   if (mixer.running && t >= duration()) endPlayback();
   if (live && mixer.running) walkVideoOntoAudioClock(t);
-  if (live) commentLayer.update(t);
+  if (live && t < FADE_START) commentLayer.update(t);   // nothing new pops in over the black
 
   paintProgress();
 }
@@ -366,9 +378,20 @@ function walkVideoOntoAudioClock(t) {
   const drift = video.currentTime - t;
   const mag = Math.abs(drift);
 
-  if (mag > HARD_RESYNC) {
-    // The seek flips video.seeking, which stops the audio; it restarts on the
-    // far side at the video's new position, so the two land together.
+  if (drift > HARD_RESYNC) {
+    // Picture ahead of the audio by a full second means the audio clock is the
+    // thing that fell behind (or stopped). Seeking the video back onto it is
+    // what looped a second of footage forever on iPhone: the clock never moves,
+    // so every catch-up seek lands on the same frame. Move the audio instead --
+    // reconcileAudio() restarts it at the picture's position next tick.
+    mixer.stopAll();
+    setVideoRate(1);
+    nudging = false;
+    return;
+  }
+  if (drift < -HARD_RESYNC) {
+    // Picture behind by a full second: a forward seek can't loop, since the
+    // audio clock it chases is by definition moving.
     video.currentTime = t;
     setVideoRate(1);
     nudging = false;
@@ -567,7 +590,17 @@ video.addEventListener('seeked', () => {
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && !video.paused) pause();
+  if (!document.hidden) return;
+  // Pause unconditionally: iOS often pauses the video itself before this fires,
+  // and skipping pause() then left the mixer believing it was still playing.
+  pause();
+  mixer.ctx.suspend().catch(() => {});
+});
+
+// Returning from the app switcher can restore this page from the back/forward
+// cache with its audio context in any state; the next tap resumes it.
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) pause();
 });
 
 window.addEventListener('keydown', (e) => {

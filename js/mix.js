@@ -15,6 +15,8 @@
 
 const FADE_IN = 0.012;   // starting mid-waveform without a ramp clicks
 const FADE_OUT = 0.04;   // likewise stopping; long enough to be silent, short enough to feel instant
+const CLOCK_STALL_MS = 400;   // a 'running' context whose clock hasn't moved this long is wedged
+const REVIVE_EVERY_MS = 1500;
 
 export class Mixer {
   constructor() {
@@ -26,6 +28,18 @@ export class Mixer {
     this.anchorCtxTime = 0;
     this.anchorOffset = 0;
     this.running = false;
+    this.stale = false;       // reports 'running' but its clock has stopped
+    this._lastCt = 0;
+    this._lastCtWall = 0;
+    this._reviving = null;
+    this._lastRevive = 0;
+
+    // An interruption (a call, Siri, switching apps) moves the context out of
+    // 'running'. Sources left scheduled on it would anchor now() to a stopped
+    // clock, so let go of them; the caller restarts audio once it is back.
+    this.ctx.onstatechange = () => {
+      if (this.ctx.state !== 'running' && this.running) this.stopAll();
+    };
 
     // iOS silences Web Audio with the hardware ring/silent switch unless the page
     // claims a playback session -- an iPhone with that switch flipped otherwise
@@ -39,8 +53,47 @@ export class Mixer {
    * every touch rather than once at startup.
    */
   async unlock() {
-    if (this.ctx.state === 'running') return;
-    try { await this.ctx.resume(); } catch { /* retried on the next gesture */ }
+    if (this.ctx.state !== 'running') {
+      // Called synchronously, so a gesture that reaches here still counts.
+      try { await this.ctx.resume(); } catch { /* retried on the next gesture */ }
+      return;
+    }
+    if (this.stale) await this.revive();
+  }
+
+  /**
+   * Watchdog, called every tick. After an interruption iOS can hand back a
+   * context that says 'running' while its clock never moves again -- no event,
+   * no error. Everything slaved to now() then freezes: comments stop, and the
+   * picture was repeatedly seeked back to the frozen time, looping a second of
+   * video forever. Only a clock seen advancing clears the flag.
+   */
+  checkClock(nowMs) {
+    const ct = this.ctx.currentTime;
+    const running = this.ctx.state === 'running';
+    if (ct !== this._lastCt) {
+      if (running) this.stale = false;
+      this._lastCt = ct;
+      this._lastCtWall = nowMs;
+    } else if (!running) {
+      this._lastCtWall = nowMs;   // a paused clock is expected; start the window fresh
+    } else if (nowMs - this._lastCtWall > CLOCK_STALL_MS) {
+      this.stale = true;
+    }
+  }
+
+  /** Kick a wedged context: suspend then resume is what gets WebKit's clock moving again. */
+  revive() {
+    if (this._reviving) return this._reviving;
+    const now = performance.now();
+    if (now - this._lastRevive < REVIVE_EVERY_MS) return Promise.resolve();
+    this._lastRevive = now;
+    // suspend() on a wedged context can itself never settle, so cap each step.
+    const capped = (p) => Promise.race([p.catch(() => {}), new Promise((r) => setTimeout(r, 800))]);
+    this._reviving = capped(this.ctx.suspend())
+      .then(() => capped(this.ctx.resume()))
+      .finally(() => { this._reviving = null; });
+    return this._reviving;
   }
 
   /**
@@ -50,11 +103,11 @@ export class Mixer {
    * to a frozen currentTime and leave the audio permanently behind the picture.
    */
   whenRunning(timeoutMs = 1500) {
-    if (this.ctx.state === 'running') return Promise.resolve(true);
+    if (this.ctx.state === 'running' && !this.stale) return Promise.resolve(true);
     return Promise.race([
       this.unlock(),
       new Promise((resolve) => setTimeout(resolve, timeoutMs)),
-    ]).then(() => this.ctx.state === 'running');
+    ]).then(() => this.ctx.state === 'running' && !this.stale);
   }
 
   addTrack(name, { volume = 1 } = {}) {

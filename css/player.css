@@ -202,12 +202,20 @@ body {
 
 /* -------------------------------------------------------------- bigplay -- */
 
+/* Centred with margin:auto, never with translate(-50%). Every show, hide and
+   tap animates this button's transform; WebKit can drop a percentage translate
+   while interpolating between transform lists of different lengths, and the
+   button would slide down-right mid-animation. With the centring out of the
+   transform, the only thing ever animated is scale(). */
 .bigplay {
   position: absolute;
   z-index: 5;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  margin: auto;
+  transform: scale(1);
   width: 78px;
   height: 78px;
   border: 0;
@@ -228,7 +236,7 @@ body {
 .bigplay .icon-bigplay { margin-left: 3px; }
 
 .bigplay:active {
-  transform: translate(-50%, -50%) scale(0.92);
+  transform: scale(0.92);
 }
 
 /* While playing the centre button is a pause control that fades out with the
@@ -236,7 +244,7 @@ body {
    the video is buffering, so the spinner is never hidden mid-stall. */
 .stage.is-idle:not(.is-buffering) .bigplay {
   opacity: 0;
-  transform: translate(-50%, -50%) scale(0.82);
+  transform: scale(0.82);
   pointer-events: none;
 }
 
@@ -410,11 +418,14 @@ body {
 .stage.is-playing .icon-bigpause { display: block; }
 .stage.is-ended .icon-bigplay { display: none; }
 .stage.is-ended .icon-bigrepeat { display: block; }
+.stage.is-ended .icon-bigpause { display: none; }
+/* The end card is a clean still: no comment may survive onto it. */
+.stage.is-ended .comments { visibility: hidden; }
 
 /* End card: first frame held, repeat icon centred, comments cleared. */
 .stage.is-ended .bigplay {
   opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
+  transform: scale(1);
   pointer-events: auto;
 }
 
