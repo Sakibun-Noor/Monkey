@@ -21,6 +21,8 @@ const MUSIC_VOLUME = 0.08;
 const POP_VOLUME = 0.03;
 
 const FADE_START = 43;          // video fades to black across the last second
+const ROUNDS = 2;               // plays per press: two different mixes back to back
+const STARTING_MAX_MS = 6000;   // longest a tap is absorbed while the first frame is still coming
 const IDLE_MS = 3000;           // controls auto-hide while playing
 const STALL_GRACE_MS = 200;     // a readyState dip shorter than this is not a real stall
 const SCRUB_SEEK_MS = 120;      // seeking the video per drag pixel makes iOS stutter
@@ -89,6 +91,8 @@ const state = {
   loading: false,
   pendingPlay: false,   // a play tap that landed mid-load, honored once ready
   playToken: 0,         // invalidates an audio start still waiting on the iOS unlock
+  round: 0,             // 0-based index of the play within the current press
+  advancing: false,     // between rounds: swapping mixes under a black frame
   idleTimer: 0,
 };
 
@@ -101,6 +105,12 @@ let scrubSeekTimer = 0;
 // swallowed, leaving a tap-happy user's second tap with nothing to show for
 // it. pause() now waits for this to settle before actually pausing.
 let playSettling = null;
+// play() has been issued and the first frame has not shown yet. On a phone the
+// play() promise only settles once enough video has buffered, and during that
+// wait video.paused already reads false -- so each impatient extra tap used to
+// be taken as a pause. Taps are absorbed here instead; the spinner is the ack.
+let starting = false;
+let startingTimer = 0;
 let standby = null;     // Promise<{combo, narration, music}> for the *next* mix, decoded ahead of time
 
 // Last values written to the DOM / audio params, so per-frame work can be skipped
@@ -169,7 +179,7 @@ function paintCombo({ narrator, music: bed, set }) {
   els.chipNarrator.textContent = narrator.label.split(' — ')[0];
   els.chipMusic.textContent = bed.label;
   els.chipCombo.textContent =
-    `${set.comments.length} comments · 1 of ${totalCombos.toLocaleString()} mixes`;
+    `${set.comments.length} comments · 1 of ${totalCombos.toLocaleString()} mixes · round ${state.round + 1} of ${ROUNDS}`;
 }
 
 function setLoading(on) {
@@ -204,6 +214,7 @@ function play() {
   state.playToken += 1;
   const token = state.playToken;
 
+  setStarting(true);
   const p = video.play();
   playSettling = (p && p.catch) ? p.catch((err) => {
     // AbortError means something (our own pause(), a seek) cut this off on
@@ -215,7 +226,10 @@ function play() {
     if (err && err.name !== 'AbortError' && token === state.playToken) {
       return video.play().catch(() => {});
     }
-  }).finally(() => { playSettling = null; }) : null;
+  }).finally(() => {
+    playSettling = null;
+    if (video.paused) setStarting(false);   // never got going; taps must work again
+  }) : null;
 
   // Audio does not start here. reconcileAudio() starts it the moment the picture
   // is actually rolling, so on a phone that still has to buffer the video, the
@@ -223,10 +237,17 @@ function play() {
   reconcileAudio(performance.now());
 }
 
+function setStarting(on) {
+  starting = on;
+  clearTimeout(startingTimer);
+  if (on) startingTimer = setTimeout(() => { starting = false; }, STARTING_MAX_MS);
+}
+
 function pause() {
   state.pendingPlay = false;  // most recent tap wins over one still queued from a load
   state.playToken += 1;       // and invalidates an audio start still waiting on unlock
   nudging = false;
+  setStarting(false);
   mixer.stopAll();
 
   // Calling video.pause() while its own play() promise is still pending makes
@@ -238,6 +259,7 @@ function pause() {
 }
 
 function toggle() {
+  if (starting) return;       // the first tap is still landing; see `starting`
   if (video.paused) play(); else pause();
 }
 
@@ -247,11 +269,42 @@ async function newMix() {
   setLoading(true);
   pause();
   stage.classList.remove('is-ended');
+  state.round = 0;
   video.currentTime = 0;
   commentLayer.reset();
   await takeStandby();
   setLoading(false);
   play();
+}
+
+/**
+ * The end of a play. One press runs ROUNDS different mixes back to back so a
+ * viewer sees the variety without doing anything; only the last one ends on
+ * the end card.
+ */
+function finishRound() {
+  if (state.advancing || stage.classList.contains('is-ended')) return;
+  if (state.round < ROUNDS - 1) rollIntoNextRound();
+  else endPlayback();
+}
+
+/** Under the black of the fade-out, swap in the next mix and start it from 0. */
+async function rollIntoNextRound() {
+  state.advancing = true;    // tick() holds the fade at black meanwhile
+  setLoading(true);          // set before anything else yields, so no tap in between can race in
+  state.playToken += 1;
+  mixer.stopAll();
+  setVideoRate(1);
+  nudging = false;
+  commentLayer.reset();
+  state.round += 1;
+  try { await takeStandby(); }   // normally already decoded, so this is instant
+  finally { setLoading(false); }
+  video.currentTime = 0;
+  state.advancing = false;
+  // The element itself reaches 'ended' only if it beat the audio clock there.
+  if (video.paused || video.ended) play();
+  repaint();
 }
 
 function seekTo(t) {
@@ -302,6 +355,8 @@ function videoRolling() {
  * Rolling again: start from wherever the video actually is.
  */
 function reconcileAudio(now) {
+  if (state.loading) { if (mixer.running) mixer.stopAll(); return; }   // buffers are being swapped
+
   // A wedged context (iOS, after switching apps) still says 'running' but its
   // clock is stopped. Drop it at once so the picture and comments fall back to
   // the video's own clock; startAudioAtVideo() revives and rejoins when it can.
@@ -348,7 +403,7 @@ function tick() {
   // is left alone -- it is content, and cutting a narrator mid-word sounds broken.
   // This is flat 0 for the first 43 of 44 seconds, so only write when it moves:
   // re-targeting an AudioParam every frame is pointless work on the audio thread.
-  const fade = fadeAmount(t);
+  const fade = state.advancing ? 1 : fadeAmount(t);
   if (fade !== lastFade) {
     mixer.setScale('music', 1 - fade);
     mixer.setScale('monkey', 1 - fade);
@@ -366,7 +421,7 @@ function tick() {
     lastBuffering = buffering;
   }
 
-  if (mixer.running && t >= duration()) endPlayback();
+  if (mixer.running && t >= duration()) finishRound();
   if (live && mixer.running) walkVideoOntoAudioClock(t);
   if (live && t < FADE_START) commentLayer.update(t);   // nothing new pops in over the black
 
@@ -567,7 +622,7 @@ video.addEventListener('play', () => {
 
 // Warm the next mix only once the picture is actually rolling, so the prefetch
 // never competes with the video's own first download on a slow connection.
-video.addEventListener('playing', () => { prefetchNext(); });
+video.addEventListener('playing', () => { setStarting(false); prefetchNext(); });
 
 video.addEventListener('pause', () => {
   stage.classList.remove('is-playing');
@@ -578,7 +633,7 @@ video.addEventListener('pause', () => {
 });
 
 // End card: black by 44s, then the first frame reappears with a repeat icon.
-video.addEventListener('ended', endPlayback);
+video.addEventListener('ended', finishRound);
 
 // Any seek that lands (ours, a scrub, keyboard) rebuilds the comment stack for
 // that moment. The audio side is handled by reconcileAudio(), which sees
