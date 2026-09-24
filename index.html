@@ -8,6 +8,15 @@
 <title>Dynamic Monkey Player</title>
 <link rel="icon" href="assets/favicon.jpg">
 <link rel="stylesheet" href="css/player.css">
+<!-- The script imports five more modules, which the browser can only discover once
+     player.js has arrived; naming them here fetches them in parallel instead of a
+     round trip later. -->
+<link rel="modulepreload" href="js/player.js">
+<link rel="modulepreload" href="js/mix.js">
+<link rel="modulepreload" href="js/comments.js">
+<link rel="modulepreload" href="js/pop.js">
+<link rel="modulepreload" href="data/media.js">
+<link rel="modulepreload" href="data/comment-sets.js">
 </head>
 <body>
 

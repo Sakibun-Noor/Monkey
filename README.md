@@ -57,36 +57,61 @@ free with unlimited bandwidth and suits video-heavy static sites better.
    `diluvios-roots-in-motion-495223` (5 m 27 s). To swap one in, edit the
    `MUSIC` list in `tools/build_audio.py` and re-run it.
 
-Only 10 of the 55 headshots are wired up, because all 902 comments across all
-40 sets come from a 10-person roster. The other 45 are sliced and ready in
-`assets/avatars/` for when the roster grows.
+There are 55 headshots in `assets/avatars/`. Each of the 40 comment sets (44
+comments apiece, 1,760 in all) is voiced by exactly 10 of them, so a mix only
+ever fetches those 10.
 
 ---
 
 ## Sync model
 
-The video is the master clock and is never modified — not its duration, not its
-rate, not its content. Everything else follows `video.currentTime`.
+Audio and picture are kept together by the **audio** clock, not the video's.
 
-`js/sync.js` corrects each audio track every frame:
+`js/mix.js` decodes narration, music and the monkey bed into memory and starts
+them together on one Web Audio clock. Once started they are never seeked or
+rate-adjusted, which is what removed the clicking on iPhone (three `<audio>`
+elements corrected every frame drift harder when Safari throttles the frame
+loop). Instead the muted video is walked onto that clock in `js/player.js`:
 
-- drift > 0.28 s → hard seek back onto the clock
-- drift > 0.045 s → playback rate nudged by at most ±6 %, which settles back to
-  1.0 within a second and is inaudible
-- otherwise → left alone
+- drift under 0.25 s → left completely alone
+- drift over 0.25 s → playback rate nudged by at most ±2 %, with hysteresis
+- picture ahead by more than 1 s → the *audio* restarts at the picture; the
+  picture is never seeked backwards onto the clock (that looped a second of
+  footage on iPhone when the clock froze after switching apps)
+- picture behind by more than 1 s → one forward seek
 
-Measured drift in practice stays inside **±0.05 s**.
+Audio only exists while the picture is genuinely rolling: it stops on a
+buffering stall and rejoins from wherever the picture is. A watchdog notices a
+context that reports "running" with a stopped clock (iOS after an interruption)
+and revives it.
 
 **Tracks that are not exactly 44 s.** Narration runs 39.65 s–44.33 s; the music
-beds run 48 s. Nothing is stretched:
+beds run 48 s. Nothing is stretched or looped: a shorter track just ends and the
+tail is silent; a longer one stops with the video.
 
-- A track shorter than the video fades out over its last 0.6 s and then stays
-  silent for the tail. It is never looped or slowed to fill the gap.
-- A track longer than the video simply stops when the video ends.
+## Play / pause
 
-Pause, resume, and seek all re-anchor both tracks to the video clock. A slow
-`setInterval` runs alongside `requestAnimationFrame` so sync survives rAF
-throttling.
+`intent` in `js/player.js` is the single source of truth for "should this be
+playing". A tap sets it immediately and the buttons follow it, not the `<video>`
+element, whose state lags behind on a phone. Picture, audio and the spinner are
+reconciled toward it, so any sequence of taps ends in the state the last tap
+asked for. Tapping the picture only shows or hides the controls.
+
+One press plays **two different mixes back to back** (new narrator, music and
+comments for the second), swapped under the fade to black, then shows the end
+card. Pressing play again starts a fresh pair.
+
+## Loading
+
+- The first mix (narration + music + monkey bed) is fetched and decoded up front;
+  a tap that lands earlier shows a spinner and starts the moment it is ready.
+- Playback waits for ~5 s of picture to be downloaded ahead of the playhead
+  (max 8 s), so a slow connection waits behind a spinner instead of stalling.
+- The next mix downloads in the background, but not while it would compete with
+  the picture: once the picture is fully in, 10 s ahead, or 30 s into playback.
+- Audio fetches time out and retry, so a dropped request can't hang the player
+  or silently leave a layer missing. Only the ~10 avatars a mix uses are fetched.
+- `tools/serve_slow.py` serves the site through a throttled link for testing.
 
 ---
 
@@ -94,10 +119,10 @@ throttling.
 
 `js/comments.js` renders comments as HTML/CSS over the video — never baked in.
 
-- circular 32 px avatar, bold name, white body text, lower-left
+- circular 28 px avatar, bold name, off-white body text, lower-left
 - newest enters at the bottom with a pop/slide-in plus the pop sound
-- at most **3** on screen; older rows glide upward and fade out
-- each comment lives 5 s of *video* time, so pausing freezes the stack
+- at most **4** on screen; older rows glide upward and fade out
+- each comment lives 8 s of *video* time, so pausing freezes the stack
 - seeking rebuilds the stack silently — correct comments, no pop spam
 
 ## Editing the comments
@@ -126,7 +151,7 @@ screens wider than 620 px show the same 9:16 stage letterboxed in the middle.
 
 ## Controls
 
-Tap to play/pause · scrubber · mute · **New mix** (replay with a fresh
+Centre and bottom-left buttons play/pause · scrubber · mute · shuffle (a fresh
 combination that never repeats the previous narrator, bed, or set).
 Keyboard: `space` `R` `M` `←` `→`.
 
@@ -136,11 +161,12 @@ Keyboard: `space` `R` `M` `←` `→`.
 index.html
 css/player.css
 js/player.js       orchestration, selection, controls
-js/sync.js         audio-to-video clock lock
+js/mix.js          Web Audio mixer: one clock for all three layers
 js/comments.js     the overlay
 js/pop.js          low-latency pop SFX
 data/media.js      narrator + music manifest with measured durations
 data/comment-sets.js  the 40 sets and the roster  <-- edit here
 tools/             regeneration scripts for every derived asset
 serve.py           dev server with Range support
+tools/serve_slow.py   the same, through a throttled link
 ```

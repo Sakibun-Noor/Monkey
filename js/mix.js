@@ -17,6 +17,8 @@ const FADE_IN = 0.012;   // starting mid-waveform without a ramp clicks
 const FADE_OUT = 0.04;   // likewise stopping; long enough to be silent, short enough to feel instant
 const CLOCK_STALL_MS = 400;   // a 'running' context whose clock hasn't moved this long is wedged
 const REVIVE_EVERY_MS = 1500;
+const FETCH_TIMEOUT_MS = 20000;   // one attempt at a ~0.5 MB file; generous even at 1 Mbps
+const FETCH_ATTEMPTS = 3;
 
 export class Mixer {
   constructor() {
@@ -120,16 +122,33 @@ export class Mixer {
     });
   }
 
-  /** Fetch and decode without touching any track, so the next mix can be warmed in the background. */
+  /**
+   * Fetch and decode without touching any track, so the next mix can be warmed in
+   * the background. Mobile connections drop and stall; a request with no timeout
+   * can hang forever (the player waits on it, so play would never start), and one
+   * failed request used to leave that layer silent for the whole session. So:
+   * a timeout per attempt, a few attempts, and only then give up on the layer.
+   */
   async decode(src) {
-    try {
-      const bytes = await (await fetch(src)).arrayBuffer();
-      return await this.ctx.decodeAudioData(bytes);
-    } catch (err) {
-      // Silence on one layer is survivable; silence with no explanation is not.
-      console.warn(`[mix] failed to load, playing without it: ${src}`, err);
-      return null;
+    for (let attempt = 1; attempt <= FETCH_ATTEMPTS; attempt++) {
+      const abort = new AbortController();
+      const timer = setTimeout(() => abort.abort(), FETCH_TIMEOUT_MS);
+      try {
+        const res = await fetch(src, { signal: abort.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const bytes = await res.arrayBuffer();
+        return await this.ctx.decodeAudioData(bytes);
+      } catch (err) {
+        if (attempt === FETCH_ATTEMPTS) {
+          console.warn(`[mix] failed to load after ${attempt} attempts, playing without it: ${src}`, err);
+          return null;
+        }
+        await new Promise((r) => setTimeout(r, 400 * attempt));
+      } finally {
+        clearTimeout(timer);
+      }
     }
+    return null;
   }
 
   setBuffer(name, buffer) {

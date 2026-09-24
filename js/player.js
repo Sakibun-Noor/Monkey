@@ -22,7 +22,10 @@ const POP_VOLUME = 0.03;
 
 const FADE_START = 43;          // video fades to black across the last second
 const ROUNDS = 2;               // plays per press: two different mixes back to back
-const STARTING_MAX_MS = 6000;   // longest a tap is absorbed while the first frame is still coming
+const CUSHION_S = 5;                  // seconds of picture that must be downloaded ahead before a start
+const CUSHION_MAX_WAIT_MS = 8000;     // ...but never make anyone wait longer than this for it
+const PREFETCH_AHEAD_S = 10;          // next mix may download once the picture is this far ahead
+const PREFETCH_BY_S = 30;             // ...and must by this point in the video, or round two will wait
 const IDLE_MS = 3000;           // controls auto-hide while playing
 const STALL_GRACE_MS = 200;     // a readyState dip shorter than this is not a real stall
 const SCRUB_SEEK_MS = 120;      // seeking the video per drag pixel makes iOS stutter
@@ -89,7 +92,6 @@ const state = {
   wasPlaying: false,
   muted: false,
   loading: false,
-  pendingPlay: false,   // a play tap that landed mid-load, honored once ready
   playToken: 0,         // invalidates an audio start still waiting on the iOS unlock
   round: 0,             // 0-based index of the play within the current press
   advancing: false,     // between rounds: swapping mixes under a black frame
@@ -100,17 +102,18 @@ let nudging = false;
 let audioStartPending = false;
 let stalledSince = 0;
 let scrubSeekTimer = 0;
-// The in-flight video.play() promise, if any. Pausing while it is still
-// resolving makes the browser abort it -- which used to be silently
-// swallowed, leaving a tap-happy user's second tap with nothing to show for
-// it. pause() now waits for this to settle before actually pausing.
-let playSettling = null;
-// play() has been issued and the first frame has not shown yet. On a phone the
-// play() promise only settles once enough video has buffered, and during that
-// wait video.paused already reads false -- so each impatient extra tap used to
-// be taken as a pause. Taps are absorbed here instead; the spinner is the ack.
-let starting = false;
-let startingTimer = 0;
+// What the person wants right now: the single source of truth for playing vs
+// paused (see setIntent). Everything else -- picture, audio, spinner, glyphs --
+// is reconciled toward it.
+let intent = false;
+let playAttempt = 0;    // identifies the in-flight video.play() so a stale one can never act
+// The element has been told to play and we have not stopped it since. A pause
+// event is only "from outside" if this is true: without it, the leftover event
+// from our own pause() (shuffle pauses, then re-asserts "playing" while the next
+// mix loads) was mistaken for an interruption and cancelled the shuffle.
+let asked = false;
+let startPoll = 0;          // timer polling for the picture cushion before a start
+let startWaitSince = 0;
 let standby = null;     // Promise<{combo, narration, music}> for the *next* mix, decoded ahead of time
 
 // Last values written to the DOM / audio params, so per-frame work can be skipped
@@ -144,7 +147,23 @@ function nextCombo() {
 
 const totalCombos = NARRATORS.length * MUSIC_BEDS.length * COMMENT_SETS.length;
 
+// A mix shows about ten of the 55 commenters. Fetching all 55 avatars up front was
+// 55 requests and 428 KB queued alongside the audio the first play is waiting on.
+const avatarOf = new Map(COMMENTERS.map((c) => [c.id, c.avatar]));
+const warmedAvatars = new Set();
+function warmAvatars(set) {
+  for (const c of set.comments) {
+    const src = avatarOf.get(c.who);
+    if (!src || warmedAvatars.has(src)) continue;
+    warmedAvatars.add(src);
+    const img = new Image();
+    img.fetchPriority = 'low';
+    img.src = src;
+  }
+}
+
 function fetchCombo(combo) {
+  warmAvatars(combo.set);
   return Promise.all([mixer.decode(combo.narrator.src), mixer.decode(combo.music.src)])
     .then(([narration, music]) => ({ combo, narration, music }));
 }
@@ -157,6 +176,47 @@ function fetchCombo(combo) {
 function prefetchNext() {
   if (!standby) standby = fetchCombo(nextCombo());
   return standby;
+}
+
+/**
+ * Warm the next mix without stealing bandwidth from the video being watched: on
+ * a slow link the two share the pipe and the picture stalls. So wait until the
+ * picture has a comfortable lead (or is fully in), but not so long that round
+ * two would have to wait for its own audio.
+ */
+let prefetchTimer = 0;
+function schedulePrefetch() {
+  if (standby || prefetchTimer) return;
+  const check = () => {
+    prefetchTimer = 0;
+    if (standby) return;
+    const ahead = bufferedAhead();
+    const fullyIn = ahead >= duration() - video.currentTime - 0.3;
+    if (fullyIn || ahead >= PREFETCH_AHEAD_S || video.currentTime >= PREFETCH_BY_S) prefetchNext();
+    else prefetchTimer = setTimeout(check, 500);
+  };
+  prefetchTimer = setTimeout(check, 500);
+}
+
+/** Seconds of picture downloaded beyond the playhead (0 if it isn't buffered here). */
+function bufferedAhead() {
+  const t = video.currentTime;
+  const b = video.buffered;
+  for (let i = 0; i < b.length; i++) {
+    if (b.start(i) <= t + 0.1 && t <= b.end(i)) return b.end(i) - t;
+  }
+  return 0;
+}
+
+/**
+ * Enough picture downloaded to play on without stalling? A browser that isn't
+ * preloading at all (iOS Safari doesn't, until play()) reports nothing buffered
+ * and would wait forever, so "nothing at all" counts as ready: play() itself
+ * does the buffering there.
+ */
+function cushioned() {
+  if (video.buffered.length === 0) return true;
+  return bufferedAhead() >= Math.min(CUSHION_S, duration() - video.currentTime - 0.3);
 }
 
 async function takeStandby() {
@@ -184,97 +244,125 @@ function paintCombo({ narrator, music: bed, set }) {
 
 function setLoading(on) {
   state.loading = on;
-  stage.classList.toggle('is-loading', on);
+  syncChrome();
 }
 
 /* -------------------------------------------------------------- control -- */
 
 /**
- * Synchronous on purpose: awaiting anything before `video.play()` would break
- * the user-gesture chain that mobile autoplay policy requires, and the pop
- * warm-up must never be able to gate playback.
+ * The single source of truth for playing vs paused. A tap sets it immediately
+ * and the buttons follow it, not the <video> element: on a phone play() takes a
+ * second or more to actually start and the element's own state lags behind (or,
+ * on iOS, hiccups), so buttons driven by its events flipped between pause and
+ * play glyphs and could end up disagreeing with what the last tap asked for.
+ */
+function setIntent(on) {
+  intent = on;
+  syncChrome();
+  if (on) bumpIdleTimer();
+  else { markIdle(false); clearTimeout(state.idleTimer); }
+}
+
+/** Buttons and spinner follow the intent, never the element. */
+function syncChrome() {
+  stage.classList.toggle('is-playing', intent);
+  stage.classList.toggle('is-loading', state.loading && intent);
+  const label = intent ? 'Pause' : 'Play';
+  els.playToggle.setAttribute('aria-label', label);
+  els.bigPlay.setAttribute('aria-label', label);
+}
+
+/**
+ * Synchronous on purpose: awaiting anything before video.play() would break the
+ * user-gesture chain mobile autoplay policy needs. Unlocking comes before the
+ * loading check so a tap that lands mid-download still spends its gesture on
+ * the audio; the picture then starts itself the moment the mix is ready.
  */
 function play() {
-  // Unlock before the loading gate, never after it. On a phone the common case
-  // is a tap that lands while the mix is still downloading; if that tap returns
-  // early, the only real user gesture is spent and the deferred play() runs from
-  // a promise callback, which iOS refuses to resume an AudioContext from. The
-  // muted video is allowed to start without a gesture, so the symptom is a video
-  // that plays in complete silence.
   pop.unlock();
   mixer.unlock();
-
-  if (state.loading) {
-    state.pendingPlay = true;
-    stage.classList.add('is-loading');   // the spinner, so the tap visibly landed
-    return;
-  }
-  state.pendingPlay = false;
   stage.classList.remove('is-ended');
-  state.playToken += 1;
-  const token = state.playToken;
+  setIntent(true);
+  if (!state.loading) startVideo();
+}
 
-  setStarting(true);
-  const p = video.play();
-  playSettling = (p && p.catch) ? p.catch((err) => {
-    // AbortError means something (our own pause(), a seek) cut this off on
-    // purpose -- not a failure. Anything else is usually the element not
-    // quite being ready the instant play() was called, and a retry almost
-    // always lands. Only retry if nothing newer has since superseded this
-    // exact attempt -- `.paused` itself is not a reliable signal here, since
-    // the browser resets it back to true as part of a genuine play() failure.
-    if (err && err.name !== 'AbortError' && token === state.playToken) {
-      return video.play().catch(() => {});
+/** Bring the element in line with a "playing" intent. Idempotent. */
+function startVideo() {
+  clearTimeout(startPoll);
+  if (!intent || state.loading) return;
+  if (video.paused || video.ended) {
+    // Starting with no picture ahead of the playhead on a slow link means
+    // stalling again and again; a few seconds behind the spinner is kinder.
+    if (!cushioned()) {
+      if (!startWaitSince) startWaitSince = performance.now();
+      if (performance.now() - startWaitSince < CUSHION_MAX_WAIT_MS) {
+        startPoll = setTimeout(startVideo, 150);
+        return;
+      }
     }
-  }).finally(() => {
-    playSettling = null;
-    if (video.paused) setStarting(false);   // never got going; taps must work again
-  }) : null;
-
-  // Audio does not start here. reconcileAudio() starts it the moment the picture
-  // is actually rolling, so on a phone that still has to buffer the video, the
-  // two begin together instead of the narration running ahead of a frozen frame.
+    startWaitSince = 0;
+    asked = true;
+    const attempt = ++playAttempt;
+    const p = video.play();
+    if (p && p.catch) p.catch((err) => onPlayRejected(err, attempt, 0));
+  }
   reconcileAudio(performance.now());
 }
 
-function setStarting(on) {
-  starting = on;
-  clearTimeout(startingTimer);
-  if (on) startingTimer = setTimeout(() => { starting = false; }, STARTING_MAX_MS);
+/**
+ * A rejected play() is either a refusal or the element being stopped from
+ * outside. Anything we stop ourselves (pause, a newer play) has already made
+ * this attempt stale, so a live attempt failing means the truth is "not
+ * playing": one quiet retry for a refusal, then give the button back honestly
+ * rather than showing a pause glyph over a still picture.
+ */
+function onPlayRejected(err, attempt, tries) {
+  if (attempt !== playAttempt || !intent) return;
+  if (err && err.name !== 'AbortError' && tries < 1) {
+    setTimeout(() => {
+      if (attempt !== playAttempt || !intent) return;
+      const p = video.play();
+      if (p && p.catch) p.catch((e) => onPlayRejected(e, attempt, tries + 1));
+    }, 250);
+    return;
+  }
+  asked = false;
+  setIntent(false);
+  mixer.stopAll();
 }
 
 function pause() {
-  state.pendingPlay = false;  // most recent tap wins over one still queued from a load
-  state.playToken += 1;       // and invalidates an audio start still waiting on unlock
+  state.playToken += 1;   // invalidates an audio start still waiting on unlock
+  playAttempt += 1;       // and any video.play() still in flight
+  clearTimeout(startPoll);
+  startWaitSince = 0;
+  asked = false;
   nudging = false;
-  setStarting(false);
+  setIntent(false);
   mixer.stopAll();
-
-  // Calling video.pause() while its own play() promise is still pending makes
-  // the browser abort that promise -- which used to surface as a tap-happy
-  // second tap seemingly doing nothing. Let the first attempt land, then pause;
-  // the extra frame or two of playback is invisible, an aborted promise was not.
-  if (playSettling) playSettling.then(() => video.pause());
-  else video.pause();
+  // Immediately, even mid-play(): the aborted promise is recognised as stale.
+  if (!video.paused) video.pause();
 }
 
 function toggle() {
-  if (starting) return;       // the first tap is still landing; see `starting`
-  if (video.paused) play(); else pause();
+  if (intent) pause(); else play();
 }
 
 /** Replay: rewind and roll a brand new, non-repeating combination. */
 async function newMix() {
   if (state.loading) return;   // a second tap mid-shuffle must not race the first
+  pop.unlock();
+  mixer.unlock();
   setLoading(true);
   pause();
   stage.classList.remove('is-ended');
   state.round = 0;
   video.currentTime = 0;
   commentLayer.reset();
+  setIntent(true);             // shuffle means "play me another": show it at once
   await takeStandby();
   setLoading(false);
-  play();
+  startVideo();                // does nothing if they tapped pause while it swapped
 }
 
 /**
@@ -302,8 +390,7 @@ async function rollIntoNextRound() {
   finally { setLoading(false); }
   video.currentTime = 0;
   state.advancing = false;
-  // The element itself reaches 'ended' only if it beat the audio clock there.
-  if (video.paused || video.ended) play();
+  startVideo();   // no-op if the picture is still rolling, or if they paused meanwhile
   repaint();
 }
 
@@ -321,12 +408,16 @@ function seekTo(t) {
 function endPlayback() {
   if (stage.classList.contains('is-ended')) return;
   state.playToken += 1;
+  playAttempt += 1;
+  clearTimeout(startPoll);
+  startWaitSince = 0;
+  asked = false;
   mixer.stopAll();
-  video.pause();
+  if (!video.paused) video.pause();
+  setIntent(false);
   setVideoRate(1);
   nudging = false;
   commentLayer.reset();
-  stage.classList.remove('is-playing');
   stage.classList.add('is-ended');
   markIdle(false);
   clearTimeout(state.idleTimer);
@@ -355,7 +446,8 @@ function videoRolling() {
  * Rolling again: start from wherever the video actually is.
  */
 function reconcileAudio(now) {
-  if (state.loading) { if (mixer.running) mixer.stopAll(); return; }   // buffers are being swapped
+  // Audio exists only while someone wants playback and the mix is fully loaded.
+  if (!intent || state.loading) { if (mixer.running) mixer.stopAll(); return; }
 
   // A wedged context (iOS, after switching apps) still says 'running' but its
   // clock is stopped. Drop it at once so the picture and comments fall back to
@@ -414,8 +506,8 @@ function tick() {
     lastFade = fade;
   }
 
-  const buffering = !video.paused && !video.ended && !state.scrubbing
-    && video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA;
+  const buffering = intent && !state.loading && !video.ended && !state.scrubbing
+    && (video.paused || video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA);
   if (buffering !== lastBuffering) {
     stage.classList.toggle('is-buffering', buffering);
     lastBuffering = buffering;
@@ -529,7 +621,7 @@ function markIdle(idle) {
 function bumpIdleTimer() {
   markIdle(false);
   clearTimeout(state.idleTimer);
-  if (!video.paused) {
+  if (intent && !state.scrubbing) {
     state.idleTimer = setTimeout(() => markIdle(true), IDLE_MS);
   }
 }
@@ -553,7 +645,7 @@ function primaryAction() {
 }
 
 els.bigPlay.addEventListener('click', () => { primaryAction(); bumpIdleTimer(); });
-els.playToggle.addEventListener('click', () => { toggle(); bumpIdleTimer(); });
+els.playToggle.addEventListener('click', () => { primaryAction(); bumpIdleTimer(); });
 els.replay.addEventListener('click', () => { newMix(); bumpIdleTimer(); });
 els.muteToggle.addEventListener('click', () => { setMuted(!state.muted); bumpIdleTimer(); });
 
@@ -564,13 +656,13 @@ stage.addEventListener('click', (e) => {
   if (e.target.closest('.controls') || e.target.closest('.bigplay')) return;
   if (stage.classList.contains('is-ended')) { newMix(); return; }
   if (stage.classList.contains('is-idle')) { bumpIdleTimer(); return; }
-  if (!video.paused) { clearTimeout(state.idleTimer); markIdle(true); }
+  if (intent) { clearTimeout(state.idleTimer); markIdle(true); }
 });
 
 function beginScrub() {
   if (state.scrubbing) return;
   state.scrubbing = true;
-  state.wasPlaying = !video.paused;
+  state.wasPlaying = intent;
   mixer.stopAll();
   stage.classList.add('is-scrubbing');
   markIdle(false);
@@ -613,27 +705,29 @@ scrub.addEventListener('pointerup', endScrub);
 scrub.addEventListener('pointercancel', endScrub);
 scrub.addEventListener('change', endScrub);
 
+// The element's own play/pause events never drive the buttons -- the intent
+// does -- but the two must not disagree for long.
 video.addEventListener('play', () => {
-  stage.classList.add('is-playing');
-  els.playToggle.setAttribute('aria-label', 'Pause');
-  els.bigPlay.setAttribute('aria-label', 'Pause');
-  bumpIdleTimer();
+  // Playing while the buttons say paused (an OS resume after an interruption):
+  // the intent wins. A stale event from a play we already cancelled finds the
+  // element paused again and does nothing.
+  if (!intent && !video.paused) video.pause();
 });
 
-// Warm the next mix only once the picture is actually rolling, so the prefetch
-// never competes with the video's own first download on a slow connection.
-video.addEventListener('playing', () => { setStarting(false); prefetchNext(); });
+video.addEventListener('playing', () => { schedulePrefetch(); });
 
 video.addEventListener('pause', () => {
-  stage.classList.remove('is-playing');
-  els.playToggle.setAttribute('aria-label', 'Play');
-  els.bigPlay.setAttribute('aria-label', 'Play');
-  markIdle(false);
-  clearTimeout(state.idleTimer);
+  // Paused from outside (the OS, an interruption) while the buttons say
+  // playing: say so. Not ours if the intent is already false, if it is the
+  // natural end, or if a newer play() has restarted the element since.
+  if (!asked || !intent || !video.paused || video.ended || state.advancing) return;
+  asked = false;
+  setIntent(false);
+  mixer.stopAll();
 });
 
 // End card: black by 44s, then the first frame reappears with a repeat icon.
-video.addEventListener('ended', finishRound);
+video.addEventListener('ended', () => { if (video.ended) finishRound(); });
 
 // Any seek that lands (ours, a scrub, keyboard) rebuilds the comment stack for
 // that moment. The audio side is handled by reconcileAudio(), which sees
@@ -662,7 +756,7 @@ window.addEventListener('keydown', (e) => {
   // The scrub range input handles its own arrow/space keys; skip so we don't
   // double-apply the same seek on top of the native slider's own adjustment.
   if (e.target instanceof HTMLInputElement) return;
-  if (e.code === 'Space') { e.preventDefault(); toggle(); bumpIdleTimer(); }
+  if (e.code === 'Space') { e.preventDefault(); primaryAction(); bumpIdleTimer(); }
   if (e.code === 'KeyR') { newMix(); }
   if (e.code === 'KeyM') { setMuted(!state.muted); }
   if (e.code === 'ArrowRight') { seekTo(video.currentTime + 5); bumpIdleTimer(); }
@@ -671,23 +765,15 @@ window.addEventListener('keydown', (e) => {
 
 /* ------------------------------------------------------------------ boot -- */
 
-// Warm the roster so a comment never appears before its avatar.
-for (const person of COMMENTERS) {
-  const img = new Image();
-  img.src = person.avatar;
-}
-
-// The monkey bed is the same every playback, so it loads once rather than per mix.
-mixer.load('monkey', MONKEY_TRACK.src);
-
-// The first mix. No spinner yet -- only a tap that has to wait earns one, so a
-// fast connection never flashes a loading state nobody was waiting on.
-state.loading = true;
-takeStandby().then(() => {
+// Everything the first play needs, in order of importance: this mix's narration
+// and music, and the monkey bed (which used to load ungated, so a play on a slow
+// link could start with the ambience silently missing). Only then the rest.
+// No spinner yet -- only a tap that has to wait earns one.
+setLoading(true);
+Promise.all([takeStandby(), mixer.load('monkey', MONKEY_TRACK.src)]).then(() => {
   setLoading(false);
-  if (state.pendingPlay) play();
-  // If they reach for shuffle before ever pressing play, still have one ready.
-  setTimeout(prefetchNext, 4000);
+  startVideo();                       // a tap that arrived during the load
+  schedulePrefetch();                 // in case shuffle comes before play
 });
 
 requestAnimationFrame(rafLoop);
@@ -698,5 +784,6 @@ paintProgress();
 window.monkeyPlayer = {
   state, play, pause, newMix, seekTo, video, mixer, commentLayer,
   get standby() { return standby; },
+  get intent() { return intent; },
   NARRATORS, MUSIC_BEDS, COMMENT_SETS,
 };
