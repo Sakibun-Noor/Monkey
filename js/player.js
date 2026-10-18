@@ -10,6 +10,7 @@ import { COMMENTERS, COMMENT_SETS } from '../data/comment-sets.js';
 import { Mixer } from './mix.js';
 import { CommentLayer } from './comments.js';
 import { Pop } from './pop.js';
+import { track } from './track.js';
 
 // Loudness order fixed by the client, 08.25.26:
 //   narrator > monkey sounds > music > click.
@@ -351,6 +352,7 @@ function toggle() {
 /** Replay: rewind and roll a brand new, non-repeating combination. */
 async function newMix() {
   if (state.loading) return;   // a second tap mid-shuffle must not race the first
+  playCounted = false;         // a shuffle or replay is a new play
   pop.unlock();
   mixer.unlock();
   setLoading(true);
@@ -714,7 +716,13 @@ video.addEventListener('play', () => {
   if (!intent && !video.paused) video.pause();
 });
 
-video.addEventListener('playing', () => { schedulePrefetch(); });
+// One play is counted per press: the first time the picture actually rolls after a
+// fresh start. Not on pause/resume, and not on the automatic second round.
+let playCounted = false;
+video.addEventListener('playing', () => {
+  schedulePrefetch();
+  if (!playCounted) { playCounted = true; track('play'); }
+});
 
 video.addEventListener('pause', () => {
   // Paused from outside (the OS, an interruption) while the buttons say
@@ -764,6 +772,8 @@ window.addEventListener('keydown', (e) => {
 });
 
 /* ------------------------------------------------------------------ boot -- */
+
+track('view');
 
 // Everything the first play needs, in order of importance: this mix's narration
 // and music, and the monkey bed (which used to load ungated, so a play on a slow
