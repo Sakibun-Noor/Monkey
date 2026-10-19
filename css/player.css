@@ -422,6 +422,86 @@ body {
 /* The end card is a clean still: no comment may survive onto it. */
 .stage.is-ended .comments { visibility: hidden; }
 
+/* ----------------------------------------------------------- action rail -- */
+
+/* TikTok-style column down the right edge. It sits above the control bar and to
+   the right of the comment stack, which stops at 75% of the width. */
+.rail {
+  position: absolute;
+  right: 6px;
+  bottom: calc(84px + var(--safe-b));
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.rail__btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 48px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease;
+}
+
+.rail__btn:active { transform: scale(0.9); }
+.rail__btn--static { cursor: default; }
+.rail__btn--static:active { transform: none; }
+
+.rail__btn svg {
+  width: 30px;
+  height: 30px;
+  fill: currentColor;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.7));
+  transition: color 0.15s ease, transform 0.2s cubic-bezier(.2, 1.4, .4, 1);
+}
+.rail__btn svg[stroke] { fill: none; }
+
+.rail__label {
+  min-height: 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 8px rgba(0, 0, 0, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+
+#likeBtn.is-on svg { color: #ff3b5c; transform: scale(1.12); }
+#likeBtn.is-popping svg { animation: like-pop 0.38s cubic-bezier(.2, 1.4, .4, 1); }
+@keyframes like-pop { 0% { transform: scale(1); } 45% { transform: scale(1.45); } 100% { transform: scale(1.12); } }
+
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(96px + var(--safe-b));
+  z-index: 8;
+  max-width: 84%;
+  padding: 9px 14px;
+  border-radius: 12px;
+  background: rgba(12, 14, 18, 0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+.toast.is-on { opacity: 1; transform: translate(-50%, 0); }
+
 /* End card: first frame held, repeat icon centred, comments cleared. */
 .stage.is-ended .bigplay {
   opacity: 1;
@@ -472,4 +552,6 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .comment, .comment__inner { transition: none !important; }
   .bigplay::after { animation: none !important; }
+  #likeBtn.is-popping svg { animation: none; }
+  .toast, .rail__btn svg { transition: none; }
 }

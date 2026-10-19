@@ -11,6 +11,7 @@ import { Mixer } from './mix.js';
 import { CommentLayer } from './comments.js';
 import { Pop } from './pop.js';
 import { track } from './track.js';
+import './actions.js';
 
 // Loudness order fixed by the client, 08.25.26:
 //   narrator > monkey sounds > music > click.
@@ -655,7 +656,7 @@ els.muteToggle.addEventListener('click', () => { setMuted(!state.muted); bumpIdl
 // playback. A stray touch used to pause the video, and the pause/play buttons
 // are what should do that. (On the end card the picture still means "again".)
 stage.addEventListener('click', (e) => {
-  if (e.target.closest('.controls') || e.target.closest('.bigplay')) return;
+  if (e.target.closest('.controls, .bigplay, .rail')) return;
   if (stage.classList.contains('is-ended')) { newMix(); return; }
   if (stage.classList.contains('is-idle')) { bumpIdleTimer(); return; }
   if (intent) { clearTimeout(state.idleTimer); markIdle(true); }

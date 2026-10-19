@@ -37,6 +37,22 @@ export function clientId() {
   return cached;
 }
 
+export const trackingOn = () => !!endpoint();
+
+/** Public totals for this site, plus whether this device has liked it. Null if unavailable. */
+export async function fetchCounts() {
+  const base = endpoint();
+  if (!base) return null;
+  try {
+    const res = await fetch(`${base}/api/counts?site=${SITE}&item=main&cid=${clientId()}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Send one event. Resolves with the service's reply, or null if anything goes wrong. */
 export async function track(type, extra = {}) {
   const base = endpoint();
