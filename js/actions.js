@@ -24,6 +24,8 @@ const likeCount = $('likeCount');
 const playCount = $('playCount');
 const shareCount = $('shareCount');
 const toastEl = $('toast');
+const playsItem = $('playsItem');
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 let liked = false;
 let likes = null;     // null = unknown (service unset or unreachable): show no number
@@ -40,7 +42,7 @@ function paint() {
 function applyCounts(c) {
   if (!c) return;
   if (typeof c.likes === 'number') likes = c.likes;
-  if (typeof c.plays === 'number') playCount.textContent = compact(c.plays);
+  if (typeof c.plays === 'number') { playCount.textContent = compact(c.plays); playsItem.hidden = false; }
   if (typeof c.shares === 'number' && c.shares > 0) shareCount.textContent = compact(c.shares);
   if (typeof c.youLiked === 'boolean') {
     liked = c.youLiked;
@@ -58,6 +60,20 @@ export function toast(message, ms = 3200) {
 
 /* ---------------------------------------------------------------- like -- */
 
+/** A small ring of sparks around the heart. Removed when it finishes; never blocks a tap. */
+function burst() {
+  if (reducedMotion) return;
+  const ring = document.createElement('span');
+  ring.className = 'burst';
+  for (let i = 0; i < 7; i++) {
+    const spark = document.createElement('i');
+    spark.style.setProperty('--a', `${Math.round(i * (360 / 7))}deg`);
+    ring.append(spark);
+  }
+  likeBtn.append(ring);
+  setTimeout(() => ring.remove(), 700);
+}
+
 // Likes are sent one at a time, in order, so a quick double-tap can never land
 // as "unlike, then like" and leave the server disagreeing with the heart.
 let chain = Promise.resolve();
@@ -71,6 +87,7 @@ likeBtn.addEventListener('click', () => {
     likeBtn.classList.remove('is-popping');
     void likeBtn.offsetWidth;                 // restart the animation on a quick re-like
     likeBtn.classList.add('is-popping');
+    burst();
   }
   const type = liked ? 'like' : 'unlike';
   chain = chain.then(async () => {

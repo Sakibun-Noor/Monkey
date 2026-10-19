@@ -434,16 +434,17 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 0;
 }
 
 .rail__btn {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  position: relative;
+  gap: 1px;
   min-width: 48px;
-  padding: 4px 0;
+  padding: 3px 0 2px;
   border: 0;
   background: none;
   color: #fff;
@@ -454,6 +455,7 @@ body {
 }
 
 .rail__btn:active { transform: scale(0.9); }
+.rail__btn[hidden] { display: none; }
 .rail__btn--static { cursor: default; }
 .rail__btn--static:active { transform: none; }
 
@@ -475,9 +477,36 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-#likeBtn.is-on svg { color: #ff3b5c; transform: scale(1.12); }
-#likeBtn.is-popping svg { animation: like-pop 0.38s cubic-bezier(.2, 1.4, .4, 1); }
-@keyframes like-pop { 0% { transform: scale(1); } 45% { transform: scale(1.45); } 100% { transform: scale(1.12); } }
+/* The heart: a clean white outline until liked, then a rose gradient fills in from the
+   centre with a soft glow, a quick pop, and a small burst. */
+.heart path { fill: none; }
+.heart__line { stroke: #fff; stroke-width: 1.9; stroke-linejoin: round; transition: stroke 0.2s ease; }
+.heart__fill {
+  fill: url(#heartGrad) !important;
+  opacity: 0;
+  transform: scale(0.5);
+  transform-origin: 12px 12.5px;
+  transition: opacity 0.18s ease, transform 0.32s cubic-bezier(.2, 1.5, .4, 1);
+}
+#likeBtn.is-on .heart__fill { opacity: 1; transform: scale(1); }
+#likeBtn.is-on .heart__line { stroke: rgba(255, 255, 255, 0.35); stroke-width: 0.8; }
+#likeBtn.is-on svg {
+  filter: drop-shadow(0 0 7px rgba(255, 45, 85, 0.55)) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
+}
+#likeBtn.is-popping svg { animation: like-pop 0.4s cubic-bezier(.2, 1.4, .4, 1); }
+@keyframes like-pop { 0% { transform: scale(1); } 40% { transform: scale(1.32); } 100% { transform: scale(1); } }
+
+.burst { position: absolute; left: 50%; top: 18px; width: 0; height: 0; pointer-events: none; }
+.burst i {
+  position: absolute; left: -2.5px; top: -2.5px; width: 5px; height: 5px; border-radius: 50%;
+  background: linear-gradient(135deg, #ffb3c2, #ff3d68);
+  opacity: 0;
+  animation: burst 0.55s ease-out forwards;
+}
+@keyframes burst {
+  0%   { opacity: 1; transform: rotate(var(--a)) translateY(-12px) scale(1); }
+  100% { opacity: 0; transform: rotate(var(--a)) translateY(-30px) scale(0.2); }
+}
 
 .toast {
   position: absolute;
@@ -552,6 +581,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .comment, .comment__inner { transition: none !important; }
   .bigplay::after { animation: none !important; }
-  #likeBtn.is-popping svg { animation: none; }
-  .toast, .rail__btn svg { transition: none; }
+  #likeBtn.is-popping svg, .burst i { animation: none; }
+  .burst { display: none; }
+  .toast, .rail__btn svg, .heart__fill, .heart__line { transition: none; }
 }
