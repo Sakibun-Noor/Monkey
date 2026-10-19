@@ -37,6 +37,19 @@ export function clientId() {
   return cached;
 }
 
+/**
+ * The visitor's country, asked of this site's own tiny /api/geo once per page load and
+ * reused. Resolves to '' if it cannot be had; tracking never waits long for it.
+ */
+let geo;
+function country() {
+  geo ||= fetch('/api/geo', { signal: AbortSignal.timeout(2500) })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((j) => (/^[A-Z]{2}$/.test(j?.country || '') ? j.country : ''))
+    .catch(() => '');
+  return geo;
+}
+
 export const trackingOn = () => !!endpoint();
 
 /** Public totals for this site, plus whether this device has liked it. Null if unavailable. */
@@ -58,13 +71,14 @@ export async function track(type, extra = {}) {
   const base = endpoint();
   if (!base) return null;
   try {
+    const cc = await country();
     const from = new URLSearchParams(location.search).get('from') || '';
     const res = await fetch(`${base}/api/collect`, {
       method: 'POST',
       // text/plain keeps this a "simple" request: no extra preflight round trip.
       headers: { 'content-type': 'text/plain' },
       body: JSON.stringify({
-        site: SITE, item: 'main', type, from, ref: document.referrer, path: location.pathname, ...extra,
+        site: SITE, item: 'main', type, from, ref: document.referrer, path: location.pathname, ...(cc && { country: cc }), ...extra,
       }),
       keepalive: true,
       signal: AbortSignal.timeout(8000),
