@@ -10,7 +10,7 @@ export const SITE = 'wildanimalchannel';
 
 // Where the deployed Traffic service lives. Empty = tracking off. For testing,
 // ?track=http://localhost:5190 overrides it for that page load only.
-const DEFAULT_ENDPOINT = '';
+const DEFAULT_ENDPOINT = 'https://stats.wildanimalchannel.com';
 
 function endpoint() {
   let base = DEFAULT_ENDPOINT;
