@@ -54,6 +54,12 @@ export class CommentLayer {
     this.reset();
   }
 
+  /** Show a comment the viewer just typed, at video time `t`. */
+  post(text, t) {
+    if (!this.people.has('you')) this.people.set('you', { id: 'you', name: 'You', avatar: '' });
+    this._show({ id: `you-${Date.now()}`, who: 'you', text, t }, t, true);
+  }
+
   reset() {
     this.cursor = 0;
     this.live = [];
@@ -149,12 +155,18 @@ export class CommentLayer {
     const inner = document.createElement('div');
     inner.className = 'comment__inner';
 
-    const img = document.createElement('img');
+    let img;
+    if (person.avatar) {
+      img = document.createElement('img');
+      img.src = person.avatar;
+      img.alt = '';
+      img.loading = 'eager';
+      img.decoding = 'sync';
+    } else {
+      img = document.createElement('div');          // no picture: an initial instead
+      img.textContent = person.name.charAt(0).toUpperCase();
+    }
     img.className = 'comment__avatar';
-    img.src = person.avatar;
-    img.alt = '';
-    img.loading = 'eager';
-    img.decoding = 'sync';
 
     const body = document.createElement('div');
     body.className = 'comment__body';

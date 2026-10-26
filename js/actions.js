@@ -1,6 +1,5 @@
 /**
- * The right-hand action column: Like, Plays, Share, Save. (Remix is the existing
- * shuffle button, wired in player.js.)
+ * The right-hand action column: Like, Comment, Bookmark, Share.
  *
  * Nothing here can affect playback. With the traffic service unset or down the
  * buttons still work -- likes are remembered on the device, counts stay blank.
@@ -21,10 +20,9 @@ export function compact(n) {
 
 const likeBtn = $('likeBtn');
 const likeCount = $('likeCount');
-const playCount = $('playCount');
+const commentCount = $('commentCount');
 const shareCount = $('shareCount');
 const toastEl = $('toast');
-const playsItem = $('playsItem');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 let liked = false;
@@ -42,7 +40,6 @@ function paint() {
 function applyCounts(c) {
   if (!c) return;
   if (typeof c.likes === 'number') likes = c.likes;
-  if (typeof c.plays === 'number') { playCount.textContent = compact(c.plays); playsItem.hidden = false; }
   if (typeof c.shares === 'number' && c.shares > 0) shareCount.textContent = compact(c.shares);
   if (typeof c.youLiked === 'boolean') {
     liked = c.youLiked;
@@ -119,7 +116,15 @@ $('shareBtn').addEventListener('click', async () => {
 /* ---------------------------------------------------------------- save -- */
 
 // A web page cannot add itself to the bookmarks, so Save says how, for this device.
-$('saveBtn').addEventListener('click', () => {
+const saveBtn = $('saveBtn');
+let saved = false;
+try { saved = localStorage.getItem('monkey-saved') === '1'; } catch { /* blocked */ }
+saveBtn.classList.toggle('is-on', saved);
+
+saveBtn.addEventListener('click', () => {
+  saved = true;
+  saveBtn.classList.add('is-on');
+  try { localStorage.setItem('monkey-saved', '1'); } catch { /* blocked */ }
   track('save');
   const ua = navigator.userAgent;
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -130,9 +135,82 @@ $('saveBtn').addEventListener('click', () => {
   toast(`Press ${mac ? '⌘' : 'Ctrl'} + D to bookmark this page`, 4500);
 });
 
-/* --------------------------------------------------------------- remix -- */
+/* ------------------------------------------------------------- comments -- */
 
-$('replay').addEventListener('click', () => { track('remix'); });
+const sheet = $('csheet');
+const list = $('csheetList');
+const empty = $('csheetEmpty');
+const form = $('csheetForm');
+const input = $('csheetInput');
+const post = $('csheetPost');
+const MAX_SAVED = 100;
+
+let mine = [];
+try {
+  const raw = JSON.parse(localStorage.getItem('monkey-comments') || '[]');
+  if (Array.isArray(raw)) mine = raw.filter((t) => typeof t === 'string').slice(-MAX_SAVED);
+} catch { /* blocked or corrupt: start empty */ }
+
+function addRow(text) {
+  const li = document.createElement('li');
+  li.className = 'csheet__item';
+  const av = document.createElement('div');
+  av.className = 'comment__avatar';
+  av.textContent = 'Y';
+  const body = document.createElement('div');
+  const name = document.createElement('span');
+  name.className = 'csheet__name';
+  name.textContent = 'You';
+  const msg = document.createElement('span');
+  msg.className = 'csheet__text';
+  msg.textContent = text;
+  body.append(name, msg);
+  li.append(av, body);
+  list.append(li);
+}
+
+function paintComments() {
+  list.replaceChildren();
+  mine.forEach(addRow);
+  empty.hidden = mine.length > 0;
+  list.hidden = mine.length === 0;
+  commentCount.textContent = mine.length ? compact(mine.length) : '';
+  $('csheetTitle').textContent = mine.length === 1 ? '1 comment' : mine.length ? `${compact(mine.length)} comments` : 'Comments';
+}
+
+function openSheet() {
+  sheet.hidden = false;
+  void sheet.offsetWidth;                       // let the slide-up transition start from closed
+  sheet.classList.add('is-open');
+  list.scrollTop = list.scrollHeight;
+}
+
+function closeSheet() {
+  sheet.classList.remove('is-open');
+  input.blur();
+  setTimeout(() => { if (!sheet.classList.contains('is-open')) sheet.hidden = true; }, reducedMotion ? 0 : 260);
+}
+
+$('commentBtn').addEventListener('click', () => (sheet.hidden || !sheet.classList.contains('is-open') ? openSheet() : closeSheet()));
+$('csheetClose').addEventListener('click', closeSheet);
+input.addEventListener('input', () => { post.disabled = !input.value.trim(); });
+
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = input.value.trim();
+  if (!text) return;
+  mine.push(text);
+  mine = mine.slice(-MAX_SAVED);
+  try { localStorage.setItem('monkey-comments', JSON.stringify(mine)); } catch { /* blocked */ }
+  input.value = '';
+  post.disabled = true;
+  paintComments();
+  list.scrollTop = list.scrollHeight;
+  document.dispatchEvent(new CustomEvent('monkey:comment', { detail: { text } }));
+  track('comment');
+});
+
+paintComments();
 
 /* -------------------------------------------------------------- counts -- */
 

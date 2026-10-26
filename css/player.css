@@ -174,6 +174,14 @@ body {
               0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
+div.comment__avatar {
+  display: grid;
+  place-items: center;
+  background: #fe2c55;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .comment__body {
   min-width: 0;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 12px rgba(0, 0, 0, 0.45);
@@ -424,17 +432,18 @@ body {
 
 /* ----------------------------------------------------------- action rail -- */
 
-/* TikTok-style column down the right edge. It sits above the control bar and to
-   the right of the comment stack, which stops at 75% of the width. */
+/* TikTok-style column down the right edge, measured off the reference screenshot:
+   34px icons, a 76px pitch (icon, 4px, 14px count, 24px gap) and icon centres 36px in
+   from the right edge. It sits above the control bar. */
 .rail {
   position: absolute;
-  right: 6px;
+  right: 12px;
   bottom: calc(84px + var(--safe-b));
   z-index: 6;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0;
+  gap: 24px;
 }
 
 .rail__btn {
@@ -442,9 +451,9 @@ body {
   flex-direction: column;
   align-items: center;
   position: relative;
-  gap: 1px;
-  min-width: 48px;
-  padding: 3px 0 2px;
+  gap: 4px;
+  width: 48px;
+  padding: 0;
   border: 0;
   background: none;
   color: #fff;
@@ -455,48 +464,46 @@ body {
 }
 
 .rail__btn:active { transform: scale(0.9); }
-.rail__btn[hidden] { display: none; }
-.rail__btn--static { cursor: default; }
-.rail__btn--static:active { transform: none; }
 
 .rail__btn svg {
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   fill: currentColor;
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.7));
   transition: color 0.15s ease, transform 0.2s cubic-bezier(.2, 1.4, .4, 1);
 }
-.rail__btn svg[stroke] { fill: none; }
 
 .rail__label {
   min-height: 14px;
-  font-size: 11px;
+  line-height: 14px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.01em;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 8px rgba(0, 0, 0, 0.5);
   font-variant-numeric: tabular-nums;
 }
 
-/* The heart: a clean white outline until liked, then a rose gradient fills in from the
-   centre with a soft glow, a quick pop, and a small burst. */
-.heart path { fill: none; }
-.heart__line { stroke: #fff; stroke-width: 1.9; stroke-linejoin: round; transition: stroke 0.2s ease; }
+/* The heart: solid white until liked, then a rose gradient fills in from the centre with a
+   soft glow, a quick pop, and a small burst. */
+.heart__base { fill: #fff; transition: opacity 0.2s ease; }
 .heart__fill {
-  fill: url(#heartGrad) !important;
+  fill: url(#heartGrad);
   opacity: 0;
   transform: scale(0.5);
   transform-origin: 12px 12.5px;
   transition: opacity 0.18s ease, transform 0.32s cubic-bezier(.2, 1.5, .4, 1);
 }
+#likeBtn.is-on .heart__base { opacity: 0; }
 #likeBtn.is-on .heart__fill { opacity: 1; transform: scale(1); }
-#likeBtn.is-on .heart__line { stroke: rgba(255, 255, 255, 0.35); stroke-width: 0.8; }
 #likeBtn.is-on svg {
   filter: drop-shadow(0 0 7px rgba(255, 45, 85, 0.55)) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
 }
 #likeBtn.is-popping svg { animation: like-pop 0.4s cubic-bezier(.2, 1.4, .4, 1); }
 @keyframes like-pop { 0% { transform: scale(1); } 40% { transform: scale(1.32); } 100% { transform: scale(1); } }
 
-.burst { position: absolute; left: 50%; top: 18px; width: 0; height: 0; pointer-events: none; }
+#saveBtn.is-on { color: var(--accent); }
+
+.burst { position: absolute; left: 50%; top: 17px; width: 0; height: 0; pointer-events: none; }
 .burst i {
   position: absolute; left: -2.5px; top: -2.5px; width: 5px; height: 5px; border-radius: 50%;
   background: linear-gradient(135deg, #ffb3c2, #ff3d68);
@@ -507,6 +514,104 @@ body {
   0%   { opacity: 1; transform: rotate(var(--a)) translateY(-12px) scale(1); }
   100% { opacity: 0; transform: rotate(var(--a)) translateY(-30px) scale(0.2); }
 }
+
+/* Comment box. */
+.csheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  height: 58%;
+  border-radius: 16px 16px 0 0;
+  background: rgba(18, 19, 24, 0.97);
+  color: #fff;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.5);
+  transform: translateY(100%);
+  transition: transform 0.25s cubic-bezier(.2, .9, .25, 1);
+}
+.csheet.is-open { transform: none; }
+.csheet[hidden] { display: none; }
+
+.csheet__head {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 14px 44px 12px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.csheet__title { margin: 0; font-size: 14px; font-weight: 700; }
+.csheet__close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.csheet__close svg { width: 20px; height: 20px; fill: currentColor; }
+
+.csheet__list {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 4px 16px;
+  list-style: none;
+  overflow-y: auto;
+}
+.csheet__item { display: flex; gap: 10px; padding: 10px 0; }
+.csheet__item .comment__avatar { width: 34px; height: 34px; }
+.csheet__name { display: block; font-size: 12.5px; font-weight: 700; color: rgba(255, 255, 255, 0.62); }
+.csheet__text { display: block; font-size: 14px; overflow-wrap: anywhere; }
+.csheet__empty {
+  flex: 1 1 auto;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  color: var(--muted);
+}
+.csheet__empty[hidden] { display: none; }
+
+.csheet__form {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px calc(10px + var(--safe-b));
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.csheet__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font: inherit;
+  font-size: 16px;      /* 16px stops iOS zooming the page on focus */
+  outline: none;
+}
+.csheet__input::placeholder { color: rgba(255, 255, 255, 0.5); }
+.csheet__post {
+  flex: 0 0 auto;
+  border: 0;
+  background: none;
+  color: #fe2c55;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.csheet__post:disabled { color: rgba(255, 255, 255, 0.35); cursor: default; }
 
 .toast {
   position: absolute;
@@ -583,5 +688,5 @@ body {
   .bigplay::after { animation: none !important; }
   #likeBtn.is-popping svg, .burst i { animation: none; }
   .burst { display: none; }
-  .toast, .rail__btn svg, .heart__fill, .heart__line { transition: none; }
+  .toast, .rail__btn svg, .heart__fill, .heart__base, .csheet { transition: none; }
 }

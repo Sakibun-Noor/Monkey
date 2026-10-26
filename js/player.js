@@ -52,7 +52,6 @@ const els = {
   bigPlay: $('bigPlay'),
   playToggle: $('playToggle'),
   muteToggle: $('muteToggle'),
-  replay: $('replay'),
   time: $('time'),
   fill: $('scrubFill'),
   buffer: $('scrubBuffer'),
@@ -649,14 +648,14 @@ function primaryAction() {
 
 els.bigPlay.addEventListener('click', () => { primaryAction(); bumpIdleTimer(); });
 els.playToggle.addEventListener('click', () => { primaryAction(); bumpIdleTimer(); });
-els.replay.addEventListener('click', () => { newMix(); bumpIdleTimer(); });
+document.addEventListener('monkey:comment', (e) => commentLayer.post(e.detail.text, video.currentTime));
 els.muteToggle.addEventListener('click', () => { setMuted(!state.muted); bumpIdleTimer(); });
 
 // Tapping the picture only shows or hides the controls; it never toggles
 // playback. A stray touch used to pause the video, and the pause/play buttons
 // are what should do that. (On the end card the picture still means "again".)
 stage.addEventListener('click', (e) => {
-  if (e.target.closest('.controls, .bigplay, .rail')) return;
+  if (e.target.closest('.controls, .bigplay, .rail, .csheet')) return;
   if (stage.classList.contains('is-ended')) { newMix(); return; }
   if (stage.classList.contains('is-idle')) { bumpIdleTimer(); return; }
   if (intent) { clearTimeout(state.idleTimer); markIdle(true); }
