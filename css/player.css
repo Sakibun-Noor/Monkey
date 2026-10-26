@@ -469,8 +469,12 @@ div.comment__avatar {
 .rail__btn svg {
   width: 34px;
   height: 34px;
-  fill: currentColor;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.7));
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
   transition: color 0.15s ease, transform 0.2s cubic-bezier(.2, 1.4, .4, 1);
 }
 
@@ -486,9 +490,14 @@ div.comment__avatar {
 
 /* The heart: solid white until liked, then a rose gradient fills in from the centre with a
    soft glow, a quick pop, and a small burst. */
-.heart__base { fill: #fff; transition: opacity 0.2s ease; }
+.heart__base {
+  fill: none;
+  stroke: #fff;
+  transition: opacity 0.2s ease;
+}
 .heart__fill {
-  fill: url(#heartGrad);
+  fill: none;
+  stroke: url(#heartGrad);
   opacity: 0;
   transform: scale(0.5);
   transform-origin: 12px 12.5px;
