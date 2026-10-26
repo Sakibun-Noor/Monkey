@@ -59,6 +59,7 @@ export async function fetchCounts() {
   try {
     const res = await fetch(`${base}/api/counts?site=${SITE}&item=main&cid=${clientId()}`, {
       signal: AbortSignal.timeout(8000),
+      cache: 'no-store',          // always the latest: new comments and likes should show at once
     });
     return res.ok ? await res.json() : null;
   } catch {

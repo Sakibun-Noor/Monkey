@@ -46,6 +46,7 @@ function applyCounts(c) {
     try { localStorage.setItem('monkey-liked', liked ? '1' : '0'); } catch { /* blocked */ }
   }
   paint();
+  onCommentData(c);
 }
 
 export function toast(message, ms = 3200) {
@@ -137,45 +138,73 @@ saveBtn.addEventListener('click', () => {
 
 /* ------------------------------------------------------------- comments -- */
 
+// Comments are kept on the traffic service so every visitor sees everyone's. If that service is
+// unset or unreachable, they fall back to this device only, as before.
 const sheet = $('csheet');
 const list = $('csheetList');
 const empty = $('csheetEmpty');
 const form = $('csheetForm');
 const input = $('csheetInput');
 const post = $('csheetPost');
+const commentBtn = $('commentBtn');
 const MAX_SAVED = 100;
+const PENDING_MS = 20000;     // how long a just-posted comment is shown before the server list must include it
 
-let mine = [];
+let mine = [];                // device-only comments (fallback mode)
 try {
   const raw = JSON.parse(localStorage.getItem('monkey-comments') || '[]');
   if (Array.isArray(raw)) mine = raw.filter((t) => typeof t === 'string').slice(-MAX_SAVED);
 } catch { /* blocked or corrupt: start empty */ }
 
-function addRow(text) {
+let shared = null;            // newest-first list from the service; null = not known (fallback mode)
+let totalComments = null;
+let pending = [];             // comments just posted, shown at once until the next refresh lists them
+
+function ago(ts) {
+  const s = Math.max(0, (Date.now() - ts) / 1000);
+  if (s < 60) return 'now';
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
+
+function addRow({ name, text, ts, mine: isMine }) {
+  const who = isMine ? 'You' : name;
   const li = document.createElement('li');
   li.className = 'csheet__item';
   const av = document.createElement('div');
   av.className = 'comment__avatar';
-  av.textContent = 'Y';
+  av.textContent = who.charAt(0).toUpperCase();
   const body = document.createElement('div');
-  const name = document.createElement('span');
-  name.className = 'csheet__name';
-  name.textContent = 'You';
+  const nameEl = document.createElement('span');
+  nameEl.className = 'csheet__name';
+  nameEl.textContent = ts ? `${who} · ${ago(ts)}` : who;
   const msg = document.createElement('span');
   msg.className = 'csheet__text';
   msg.textContent = text;
-  body.append(name, msg);
+  body.append(nameEl, msg);
   li.append(av, body);
   list.append(li);
 }
 
 function paintComments() {
+  let rows;
+  if (shared) {
+    const now = Date.now();
+    pending = pending.filter((p) => now - p.ts < PENDING_MS && !shared.some((r) => r.mine && r.text === p.text));
+    rows = [...shared].reverse().concat(pending);          // oldest at the top, newest at the bottom
+  } else {
+    rows = mine.map((text) => ({ name: 'You', text, mine: true }));
+  }
+  const stick = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
   list.replaceChildren();
-  mine.forEach(addRow);
-  empty.hidden = mine.length > 0;
-  list.hidden = mine.length === 0;
-  commentCount.textContent = mine.length ? compact(mine.length) : '';
-  $('csheetTitle').textContent = mine.length === 1 ? '1 comment' : mine.length ? `${compact(mine.length)} comments` : 'Comments';
+  rows.forEach(addRow);
+  empty.hidden = rows.length > 0;
+  list.hidden = rows.length === 0;
+  if (stick) list.scrollTop = list.scrollHeight;
+  const n = shared ? Math.max(totalComments || 0, rows.length) : rows.length;
+  commentCount.textContent = n ? compact(n) : '';
+  $('csheetTitle').textContent = n === 1 ? '1 comment' : n ? `${compact(n)} comments` : 'Comments';
 }
 
 function openSheet() {
@@ -183,6 +212,7 @@ function openSheet() {
   void sheet.offsetWidth;                       // let the slide-up transition start from closed
   sheet.classList.add('is-open');
   list.scrollTop = list.scrollHeight;
+  refreshComments();
 }
 
 function closeSheet() {
@@ -191,26 +221,62 @@ function closeSheet() {
   setTimeout(() => { if (!sheet.classList.contains('is-open')) sheet.hidden = true; }, reducedMotion ? 0 : 260);
 }
 
-$('commentBtn').addEventListener('click', () => (sheet.hidden || !sheet.classList.contains('is-open') ? openSheet() : closeSheet()));
+/** From a counts reply: whether comments are switched on, and everyone's recent comments. */
+function onCommentData(c) {
+  if (typeof c.commentsOn === 'boolean') {
+    commentBtn.hidden = !c.commentsOn;
+    if (!c.commentsOn) closeSheet();
+  }
+  if (typeof c.comments === 'number') totalComments = c.comments;
+  if (Array.isArray(c.recentComments)) shared = c.recentComments;
+  if (shared || typeof c.comments === 'number') paintComments();
+}
+
+async function refreshComments() {
+  if (trackingOn()) applyCounts(await fetchCounts());
+}
+
+commentBtn.addEventListener('click', () => (sheet.hidden || !sheet.classList.contains('is-open') ? openSheet() : closeSheet()));
 $('csheetClose').addEventListener('click', closeSheet);
 input.addEventListener('input', () => { post.disabled = !input.value.trim(); });
 
-form.addEventListener('submit', (e) => {
+form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const text = input.value.trim();
   if (!text) return;
-  mine.push(text);
-  mine = mine.slice(-MAX_SAVED);
-  try { localStorage.setItem('monkey-comments', JSON.stringify(mine)); } catch { /* blocked */ }
-  input.value = '';
+
+  if (!trackingOn()) {                          // no service: keep it on this device
+    mine.push(text);
+    mine = mine.slice(-MAX_SAVED);
+    try { localStorage.setItem('monkey-comments', JSON.stringify(mine)); } catch { /* blocked */ }
+    input.value = '';
+    post.disabled = true;
+    paintComments();
+    list.scrollTop = list.scrollHeight;
+    document.dispatchEvent(new CustomEvent('monkey:comment', { detail: { text } }));
+    return;
+  }
+
   post.disabled = true;
+  const reply = await track('comment', { cid: clientId(), text });
+  if (!reply || !reply.ok) {
+    await refreshComments();                    // it may have been switched off meanwhile
+    toast(commentBtn.hidden ? 'Comments are turned off' : 'Could not post your comment. Try again.');
+    post.disabled = !input.value.trim();
+    return;
+  }
+  input.value = '';
+  pending.push({ name: 'You', text, ts: Date.now(), mine: true });
+  if (!shared) shared = [];
   paintComments();
   list.scrollTop = list.scrollHeight;
   document.dispatchEvent(new CustomEvent('monkey:comment', { detail: { text } }));
-  track('comment');
+  refreshComments();
 });
 
 paintComments();
+// While the box is open, pick up other people's comments as they arrive.
+setInterval(() => { if (!document.hidden && sheet.classList.contains('is-open')) refreshComments(); }, 8000);
 
 /* -------------------------------------------------------------- counts -- */
 

@@ -464,6 +464,7 @@ div.comment__avatar {
 }
 
 .rail__btn:active { transform: scale(0.9); }
+.rail__btn[hidden] { display: none; }
 
 .rail__btn svg {
   width: 34px;
