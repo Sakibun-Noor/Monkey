@@ -19,7 +19,7 @@ import './actions.js';
 // as loud or louder"), music is a background bed, the click is barely audible.
 const NARRATION_VOLUME = 0.85;
 const MONKEY_VOLUME = 0.68;
-const MUSIC_VOLUME = 0.08;
+const MUSIC_VOLUME = 0.15;
 const POP_VOLUME = 0.03;
 
 const FADE_START = 43;          // video fades to black across the last second
