@@ -52,6 +52,8 @@ function applyCounts(c) {
   }
   paint();
   onCommentData(c);
+  // The levels set from the dashboard (or null = the standard ones); js/admin.js applies them.
+  if ('sound' in c) document.dispatchEvent(new CustomEvent('monkey:sound', { detail: c.sound }));
 }
 
 export function toast(message, ms = 3200) {

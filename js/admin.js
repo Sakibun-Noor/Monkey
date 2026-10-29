@@ -3,6 +3,8 @@
  *
  * Normal viewers never see it. Four taps on the edges of the picture, in order -- top, right,
  * bottom, left, within a few seconds -- switch it on (and the same four taps switch it off).
+ * The loudness everyone hears is set from the dashboard (Admin > Sound) and arrives with the counts;
+ * until then, or if the service cannot be reached, the standard levels are used.
  * While it is on:
  *   - the two strips above the video (mix chips and the count line) are shown;
  *   - a "Sound" button opens sliders for the narrator, monkey sounds, music and click, so levels
@@ -31,13 +33,20 @@ const store = {
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* blocked */ } },
 };
 
+// Levels from the dashboard can arrive before initAdmin has run, so listen from the start.
+let fromServer;                       // undefined = not heard yet; null = none saved; otherwise {narration, ...} in percent
+let onServer = null;
+document.addEventListener('monkey:sound', (e) => { fromServer = e.detail; if (onServer) onServer(fromServer); });
+
 export function initAdmin({ stage, mixer, pop, defaults }) {
   const bar = $('adminBar');
   const panel = $('adminPanel');
-  let levels = { ...defaults };
+  let normal = { ...defaults };       // what visitors hear: the dashboard's levels if set, else the standard ones
+  let levels = { ...normal };         // what Admin's sliders are set to on this device
+  let customized = false;             // true once a slider has been moved here
   try {
     const saved = JSON.parse(store.get('monkey-levels') || '{}');
-    for (const [k] of KEYS) if (typeof saved[k] === 'number' && saved[k] >= 0 && saved[k] <= 1) levels[k] = saved[k];
+    for (const [k] of KEYS) if (typeof saved[k] === 'number' && saved[k] >= 0 && saved[k] <= 1) { levels[k] = saved[k]; customized = true; }
   } catch { /* corrupt: use the normal levels */ }
 
   const apply = (v) => {
@@ -63,13 +72,14 @@ export function initAdmin({ stage, mixer, pop, defaults }) {
     bar.hidden = !on;
     store.set('monkey-admin', on ? '1' : '0');
     if (!on) { panel.hidden = true; $('adminSound').setAttribute('aria-expanded', 'false'); }
-    apply(on ? levels : defaults);
+    apply(on ? levels : normal);
     if (announce) toast(on ? 'Admin mode on' : 'Admin mode off', 1800);
   }
 
   for (const [k] of KEYS) {
     panel.querySelector(`input[data-key="${k}"]`).addEventListener('input', (e) => {
       levels[k] = Number(e.target.value) / 100;
+      customized = true;
       e.target.nextElementSibling.textContent = `${pct(levels[k])}%`;
       $('adminSummary').textContent = summary();
       apply(levels);
@@ -82,8 +92,8 @@ export function initAdmin({ stage, mixer, pop, defaults }) {
   });
   $('adminExit').addEventListener('click', () => setAdmin(false, true));
   $('adminReset').addEventListener('click', () => {
-    levels = { ...defaults };
-    paintSliders(); apply(levels); store.set('monkey-levels', JSON.stringify(levels));
+    levels = { ...normal }; customized = false;
+    paintSliders(); apply(levels); store.set('monkey-levels', '');
   });
   $('adminCopy').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(summary()); toast('Levels copied', 1800); }
@@ -112,6 +122,16 @@ export function initAdmin({ stage, mixer, pop, defaults }) {
     }
   });
 
+  // The dashboard's levels become "normal"; Admin's sliders follow them until one is moved on this device.
+  function setNormal(server) {
+    normal = { ...defaults };
+    if (server) for (const [k] of KEYS) if (Number.isFinite(server[k]) && server[k] >= 0 && server[k] <= 100) normal[k] = server[k] / 100;
+    if (!customized) { levels = { ...normal }; paintSliders(); }
+    apply(stage.classList.contains('is-admin') ? levels : normal);
+  }
+  onServer = setNormal;
+
   paintSliders();
+  if (fromServer !== undefined) setNormal(fromServer);
   if (store.get('monkey-admin') === '1') setAdmin(true, false);
 }
