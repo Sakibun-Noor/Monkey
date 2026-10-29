@@ -97,6 +97,7 @@ body {
 /* ------------------------------------------------------------------ hud -- */
 
 .hud {
+  display: none;               /* Administrator mode only (see js/admin.js) */
   position: absolute;
   top: calc(10px + var(--safe-t));
   left: 12px;
@@ -134,6 +135,51 @@ body {
   text-transform: uppercase;
   color: var(--muted);
 }
+
+/* Administrator mode: the two strips above the video come back, and a Sound button + panel. */
+.stage.is-admin .hud { display: block; right: 132px; }
+
+.admin {
+  position: absolute;
+  top: calc(10px + var(--safe-t));
+  right: 10px;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.admin[hidden], .admin__panel[hidden] { display: none; }
+.admin__row { display: flex; gap: 6px; }
+.admin__btn {
+  padding: 6px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(10, 12, 16, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.admin__panel {
+  width: 262px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(14, 16, 22, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14), 0 10px 30px rgba(0, 0, 0, 0.5);
+  font-size: 12.5px;
+}
+.admin__hint { margin: 0 0 10px; color: var(--muted); line-height: 1.35; }
+.admin__slider { display: grid; grid-template-columns: 88px 1fr 38px; align-items: center; gap: 8px; margin: 8px 0; font-weight: 600; }
+.admin__slider output { text-align: right; font-variant-numeric: tabular-nums; color: var(--accent); }
+.admin__slider input { width: 100%; accent-color: var(--accent); }
+.admin__sum { margin: 10px 0 8px; color: var(--muted); font-size: 11.5px; line-height: 1.4; user-select: all; }
+.admin__actions { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* ------------------------------------------------------------- comments -- */
 
@@ -513,7 +559,16 @@ div.comment__avatar {
 #likeBtn.is-popping svg { animation: like-pop 0.4s cubic-bezier(.2, 1.4, .4, 1); }
 @keyframes like-pop { 0% { transform: scale(1); } 40% { transform: scale(1.32); } 100% { transform: scale(1); } }
 
+/* Settled states: for 5 seconds after a tap the heart is solid red and the bookmark solid yellow,
+   then each becomes a thin outline. Both stay "on" and a second tap turns them off. */
+#likeBtn.is-on.is-settled .heart__fill { opacity: 0; }
+#likeBtn.is-on.is-settled .heart__base { opacity: 1; stroke: #ff0000; stroke-width: 1.5; }
+#likeBtn.is-on.is-settled svg { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55)); }
+
 #saveBtn.is-on { color: var(--accent); }
+#saveBtn.is-on:not(.is-settled) svg { fill: currentColor; }
+#saveBtn.is-on.is-settled svg { fill: none; stroke-width: 1.5; }
+#saveBtn svg { transition: color 0.15s ease, fill 0.3s ease, transform 0.2s cubic-bezier(.2, 1.4, .4, 1); }
 
 .burst { position: absolute; left: 50%; top: 17px; width: 0; height: 0; pointer-events: none; }
 .burst i {

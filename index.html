@@ -17,6 +17,7 @@
 <link rel="modulepreload" href="js/pop.js">
 <link rel="modulepreload" href="js/track.js">
 <link rel="modulepreload" href="js/actions.js">
+<link rel="modulepreload" href="js/admin.js">
 <link rel="modulepreload" href="data/media.js">
 <link rel="modulepreload" href="data/comment-sets.js">
 </head>
@@ -126,6 +127,26 @@
         <button class="csheet__post" id="csheetPost" type="submit" disabled>Post</button>
       </form>
     </section>
+
+    <!-- Administrator mode: hidden from visitors; four taps on the edges (top, right, bottom, left) open it. -->
+    <div class="admin" id="adminBar" hidden>
+      <div class="admin__row">
+        <button class="admin__btn" id="adminSound" type="button" aria-expanded="false">Sound</button>
+        <button class="admin__btn" id="adminExit" type="button">Exit admin</button>
+      </div>
+      <div class="admin__panel" id="adminPanel" hidden>
+        <p class="admin__hint">Press play, then move a slider to hear it. Only this device changes, and only while Admin is on.</p>
+        <label class="admin__slider"><span>Narrator</span><input type="range" min="0" max="100" step="1" data-key="narration"><output>85%</output></label>
+        <label class="admin__slider"><span>Monkey sounds</span><input type="range" min="0" max="100" step="1" data-key="monkey"><output>68%</output></label>
+        <label class="admin__slider"><span>Music</span><input type="range" min="0" max="100" step="1" data-key="music"><output>15%</output></label>
+        <label class="admin__slider"><span>Click</span><input type="range" min="0" max="100" step="1" data-key="click"><output>3%</output></label>
+        <p class="admin__sum" id="adminSummary"></p>
+        <div class="admin__actions">
+          <button class="admin__btn" id="adminReset" type="button">Reset</button>
+          <button class="admin__btn" id="adminCopy" type="button">Copy levels</button>
+        </div>
+      </div>
+    </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </section>

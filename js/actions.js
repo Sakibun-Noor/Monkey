@@ -31,8 +31,13 @@ let toastTimer = 0;
 
 try { liked = localStorage.getItem('monkey-liked') === '1'; } catch { /* blocked */ }
 
+const SETTLE_MS = 5000;   // solid for this long after a tap, then a thin outline
+let likeTimer = 0;
+
 function paint() {
   likeBtn.classList.toggle('is-on', liked);
+  if (!liked) { clearTimeout(likeTimer); likeTimer = 0; }
+  likeBtn.classList.toggle('is-settled', liked && !likeTimer);   // already liked (page load, server refresh): outline at once
   likeBtn.setAttribute('aria-pressed', String(liked));
   likeCount.textContent = likes == null ? '' : compact(likes);
 }
@@ -78,6 +83,10 @@ let chain = Promise.resolve();
 
 likeBtn.addEventListener('click', () => {
   liked = !liked;
+  if (liked) {                                    // solid red now, thin outline after 5 seconds
+    clearTimeout(likeTimer);
+    likeTimer = setTimeout(() => { likeTimer = 0; likeBtn.classList.add('is-settled'); }, SETTLE_MS);
+  }
   if (likes != null) likes = Math.max(0, likes + (liked ? 1 : -1));
   try { localStorage.setItem('monkey-liked', liked ? '1' : '0'); } catch { /* blocked */ }
   paint();
@@ -119,12 +128,24 @@ $('shareBtn').addEventListener('click', async () => {
 // A web page cannot add itself to the bookmarks, so Save says how, for this device.
 const saveBtn = $('saveBtn');
 let saved = false;
+let saveTimer = 0;
 try { saved = localStorage.getItem('monkey-saved') === '1'; } catch { /* blocked */ }
 saveBtn.classList.toggle('is-on', saved);
+saveBtn.classList.toggle('is-settled', saved);      // saved earlier: thin outline straight away
 
 saveBtn.addEventListener('click', () => {
+  if (saved) {                                      // a second tap takes it off
+    saved = false;
+    clearTimeout(saveTimer);
+    saveBtn.classList.remove('is-on', 'is-settled');
+    try { localStorage.setItem('monkey-saved', '0'); } catch { /* blocked */ }
+    return;
+  }
   saved = true;
   saveBtn.classList.add('is-on');
+  saveBtn.classList.remove('is-settled');           // solid for 5 seconds, then a thin outline
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => saveBtn.classList.add('is-settled'), SETTLE_MS);
   try { localStorage.setItem('monkey-saved', '1'); } catch { /* blocked */ }
   track('save');
   const ua = navigator.userAgent;

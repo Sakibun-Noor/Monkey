@@ -10,6 +10,7 @@ import { COMMENTERS, COMMENT_SETS } from '../data/comment-sets.js';
 import { Mixer } from './mix.js';
 import { CommentLayer } from './comments.js';
 import { Pop } from './pop.js';
+import { initAdmin } from './admin.js';
 import { track } from './track.js';
 import './actions.js';
 
@@ -69,6 +70,7 @@ mixer.addTrack('narration', { volume: NARRATION_VOLUME });
 mixer.addTrack('music', { volume: MUSIC_VOLUME });
 mixer.addTrack('monkey', { volume: MONKEY_VOLUME });
 const pop = new Pop(POP_SFX, { volume: POP_VOLUME, context: mixer.ctx });
+initAdmin({ stage, mixer, pop, defaults: { narration: NARRATION_VOLUME, monkey: MONKEY_VOLUME, music: MUSIC_VOLUME, click: POP_VOLUME } });
 
 // Any touch anywhere is a chance to unlock, not just one that reaches play():
 // iOS also interrupts the context on calls and Siri, and a tap that lands during
@@ -655,7 +657,7 @@ els.muteToggle.addEventListener('click', () => { setMuted(!state.muted); bumpIdl
 // playback. A stray touch used to pause the video, and the pause/play buttons
 // are what should do that. (On the end card the picture still means "again".)
 stage.addEventListener('click', (e) => {
-  if (e.target.closest('.controls, .bigplay, .rail, .csheet')) return;
+  if (e.target.closest('.controls, .bigplay, .rail, .csheet, .admin')) return;
   if (stage.classList.contains('is-ended')) { newMix(); return; }
   if (stage.classList.contains('is-idle')) { bumpIdleTimer(); return; }
   if (intent) { clearTimeout(state.idleTimer); markIdle(true); }

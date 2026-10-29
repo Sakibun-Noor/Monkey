@@ -161,6 +161,14 @@ export class Mixer {
     this.setBuffer(name, await this.decode(src));
   }
 
+  /** Change a layer's own loudness (0-1), e.g. from the admin sliders. The fade-out scale still applies on top. */
+  setBaseVolume(name, v) {
+    const track = this.tracks.get(name);
+    if (!track) return;
+    track.baseVolume = Math.max(0, Math.min(1, v));
+    this._applyGain(track);
+  }
+
   setScale(name, v) {
     const track = this.tracks.get(name);
     if (!track) return;

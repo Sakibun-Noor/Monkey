@@ -63,6 +63,11 @@ export class Pop {
     } catch { /* ignore */ }
   }
 
+  setVolume(v) {
+    this.volume = Math.max(0, Math.min(1, v));
+    for (const a of this.pool) a.volume = this.volume;
+  }
+
   setMuted(m) {
     this.muted = m;
   }
