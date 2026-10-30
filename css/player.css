@@ -6,6 +6,8 @@
   --muted: rgba(255, 255, 255, 0.62);
   --chip-bg: rgba(10, 12, 16, 0.55);
   --accent: #ffd23f;
+  --save: #ff9a1f;              /* the saved bookmark: orange */
+  --rail-stroke: 1.1;           /* line weight of the right-side icons (was 1.9) */
   --stage-max-w: 460px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
@@ -517,7 +519,7 @@ div.comment__avatar {
   height: 34px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.9;
+  stroke-width: var(--rail-stroke);
   stroke-linecap: round;
   stroke-linejoin: round;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
@@ -539,7 +541,7 @@ div.comment__avatar {
 .heart__base {
   fill: none;
   stroke: #fff;
-  stroke-width: 1.9;
+  stroke-width: var(--rail-stroke);
   transition: opacity 0.15s ease;
 }
 .heart__fill {
@@ -562,12 +564,12 @@ div.comment__avatar {
 /* Settled states: for 5 seconds after a tap the heart is solid red and the bookmark solid yellow,
    then each becomes a thin outline. Both stay "on" and a second tap turns them off. */
 #likeBtn.is-on.is-settled .heart__fill { opacity: 0; }
-#likeBtn.is-on.is-settled .heart__base { opacity: 1; stroke: #ff0000; stroke-width: 1.5; }
+#likeBtn.is-on.is-settled .heart__base { opacity: 1; stroke: #ff0000; stroke-width: var(--rail-stroke); }
 #likeBtn.is-on.is-settled svg { filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55)); }
 
-#saveBtn.is-on { color: var(--accent); }
+#saveBtn.is-on { color: var(--save); }
 #saveBtn.is-on:not(.is-settled) svg { fill: currentColor; }
-#saveBtn.is-on.is-settled svg { fill: none; stroke-width: 1.5; }
+#saveBtn.is-on.is-settled svg { fill: none; stroke-width: var(--rail-stroke); }
 #saveBtn svg { transition: color 0.15s ease, fill 0.3s ease, transform 0.2s cubic-bezier(.2, 1.4, .4, 1); }
 
 .burst { position: absolute; left: 50%; top: 17px; width: 0; height: 0; pointer-events: none; }
