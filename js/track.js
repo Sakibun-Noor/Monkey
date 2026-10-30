@@ -38,15 +38,19 @@ export function clientId() {
 }
 
 /**
- * The visitor's country, asked of this site's own tiny /api/geo once per page load and
- * reused. Resolves to '' if it cannot be had; tracking never waits long for it.
+ * Where the visitor is (country, state or region, city), asked of this site's own tiny /api/geo once
+ * per page load and reused. Any part it cannot give is left out; tracking never waits long for it.
  */
 let geo;
-function country() {
+function place() {
   geo ||= fetch('/api/geo', { signal: AbortSignal.timeout(2500) })
     .then((r) => (r.ok ? r.json() : null))
-    .then((j) => (/^[A-Z]{2}$/.test(j?.country || '') ? j.country : ''))
-    .catch(() => '');
+    .then((j) => ({
+      ...(/^[A-Z]{2}$/.test(j?.country || '') && { country: j.country }),
+      ...(/^[A-Z0-9]{1,3}$/.test(j?.region || '') && { region: j.region }),
+      ...(typeof j?.city === 'string' && j.city && { city: j.city.slice(0, 60) }),
+    }))
+    .catch(() => ({}));
   return geo;
 }
 
@@ -72,14 +76,14 @@ export async function track(type, extra = {}) {
   const base = endpoint();
   if (!base) return null;
   try {
-    const cc = await country();
+    const where = await place();
     const from = new URLSearchParams(location.search).get('from') || '';
     const res = await fetch(`${base}/api/collect`, {
       method: 'POST',
       // text/plain keeps this a "simple" request: no extra preflight round trip.
       headers: { 'content-type': 'text/plain' },
       body: JSON.stringify({
-        site: SITE, item: 'main', type, from, ref: document.referrer, path: location.pathname, ...(cc && { country: cc }), ...extra,
+        site: SITE, item: 'main', type, from, ref: document.referrer, path: location.pathname, ...where, ...extra,
       }),
       keepalive: true,
       signal: AbortSignal.timeout(8000),
