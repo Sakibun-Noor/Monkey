@@ -22,7 +22,7 @@ const KEYS = [['narration', 'Narrator'], ['monkey', 'Monkey sounds'], ['music', 
 // They stay clear of the centre play button, the right-hand icons (below 54%) and the controls.
 const ZONES = {
   top: (x, y) => y < 0.16 && x > 0.3 && x < 0.7,
-  right: (x, y) => x > 0.84 && y > 0.2 && y < 0.5,
+  right: (x, y, railTop) => x > 0.84 && y > 0.12 && y < Math.min(0.5, railTop - 0.02),
   bottom: (x, y) => y > 0.74 && y < 0.87 && x > 0.3 && x < 0.7,
   left: (x, y) => x < 0.16 && y > 0.25 && y < 0.55,
 };
@@ -108,7 +108,9 @@ export function initAdmin({ stage, mixer, pop, defaults }) {
     const r = stage.getBoundingClientRect();
     const x = (e.clientX - r.left) / r.width;
     const y = (e.clientY - r.top) / r.height;
-    const zone = SEQUENCE.find((z) => ZONES[z](x, y));
+    const rail = $('rail');
+    const railTop = rail ? (rail.getBoundingClientRect().top - r.top) / r.height : 1;       // the icons start here; keep clear of them
+    const zone = SEQUENCE.find((z) => ZONES[z](x, y, railTop));
     if (!zone) return;                                    // an ordinary tap elsewhere never disturbs a sequence
     const now = performance.now();
     if (step > 0 && now - startedAt > WINDOW_MS) step = 0;

@@ -18,6 +18,7 @@
 <link rel="modulepreload" href="js/track.js">
 <link rel="modulepreload" href="js/actions.js">
 <link rel="modulepreload" href="js/admin.js">
+<link rel="preload" href="assets/logo.png" as="image">
 <link rel="modulepreload" href="data/media.js">
 <link rel="modulepreload" href="data/comment-sets.js">
 </head>
@@ -109,6 +110,11 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4l7.500 7.500L14 19v-4.300c-4.800 0-8.200 1.400-10.800 5C3.900 14 7.300 9.200 14 8.200V4z"/></svg>
         <span class="rail__label" id="shareCount">Share</span>
       </button>
+      <!-- The logo square: opens the factory.services home page in a new tab, so the video keeps playing here. -->
+      <a class="rail__logo" id="logoLink" href="https://factory.services" target="_blank" rel="noopener noreferrer"
+         aria-label="factory.services home page">
+        <img src="assets/logo.png" width="44" height="44" alt="" decoding="async">
+      </a>
     </nav>
 
     <!-- Comment box: slides up over the lower half of the picture. -->

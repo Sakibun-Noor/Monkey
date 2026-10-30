@@ -561,6 +561,21 @@ div.comment__avatar {
 #likeBtn.is-popping svg { animation: like-pop 0.4s cubic-bezier(.2, 1.4, .4, 1); }
 @keyframes like-pop { 0% { transform: scale(1); } 40% { transform: scale(1.32); } 100% { transform: scale(1); } }
 
+/* The logo square under Share. The rail is anchored to the bottom, so adding it here lifts the icons
+   above it; its bottom edge stays clear of the control bar (the video slider). */
+.rail__logo {
+  display: block;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.55));
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease;
+}
+.rail__logo:active { transform: scale(0.92); }
+.rail__logo img { display: block; width: 100%; height: 100%; border-radius: 10px; }
+
 /* Settled states: for 5 seconds after a tap the heart is solid red and the bookmark solid yellow,
    then each becomes a thin outline. Both stay "on" and a second tap turns them off. */
 #likeBtn.is-on.is-settled .heart__fill { opacity: 0; }
