@@ -7,7 +7,7 @@
   --chip-bg: rgba(10, 12, 16, 0.55);
   --accent: #ffd23f;
   --save: #ff9a1f;              /* the saved bookmark: orange */
-  --rail-stroke: 1.4;           /* line weight of the right-side icons (was 1.9) */
+  --rail-stroke: 1.1;           /* line weight of the right-side icons (was 1.9) */
   --stage-max-w: 460px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
