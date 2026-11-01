@@ -718,6 +718,19 @@ div.comment__avatar {
   transition: opacity 0.2s ease, transform 0.2s ease;
   pointer-events: none;
 }
+/* The icon + word pill used for "Saved." and "Unsaved". */
+.toast--icon {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 18px 11px 14px;
+  border-radius: 14px;
+  background: rgba(27, 29, 34, 0.96);
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.toast__icon { width: 24px; height: 24px; flex: none; color: #fff; }
 .toast.is-on { opacity: 1; transform: translate(-50%, 0); }
 
 /* End card: first frame held, repeat icon centred, comments cleared. */

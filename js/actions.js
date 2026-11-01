@@ -56,8 +56,25 @@ function applyCounts(c) {
   if ('sound' in c) document.dispatchEvent(new CustomEvent('monkey:sound', { detail: c.sound }));
 }
 
-export function toast(message, ms = 3200) {
-  toastEl.textContent = message;
+// Small icons for the pill-shaped messages ("Saved." / "Unsaved"); fixed strings, never visitor data.
+const BOOKMARK = '<path d="M6.5 2h11A1.5 1.5 0 0 1 19 3.5v17.7a.5.5 0 0 1-.8.4L12 16.5l-6.2 5.1a.5.5 0 0 1-.8-.4V3.5A1.5 1.5 0 0 1 6.5 2z" fill="currentColor"/>';
+const TOAST_ICONS = {
+  saved: BOOKMARK,
+  unsaved: `${BOOKMARK}<path d="M3.5 3.5l17 17" stroke="#1b1d22" stroke-width="4.5" stroke-linecap="round"/><path d="M3.5 3.5l17 17" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>`,
+};
+
+export function toast(message, ms = 3200, icon) {
+  toastEl.replaceChildren();
+  toastEl.classList.toggle('toast--icon', Boolean(icon && TOAST_ICONS[icon]));
+  if (icon && TOAST_ICONS[icon]) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('class', 'toast__icon'); svg.setAttribute('aria-hidden', 'true');
+    svg.innerHTML = TOAST_ICONS[icon];
+    toastEl.append(svg);
+  }
+  const text = document.createElement('span');
+  text.textContent = message;
+  toastEl.append(text);
   toastEl.classList.add('is-on');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toastEl.classList.remove('is-on'), ms);
@@ -127,7 +144,7 @@ $('shareBtn').addEventListener('click', async () => {
 
 /* ---------------------------------------------------------------- save -- */
 
-// A web page cannot add itself to the bookmarks, so Save says how, for this device.
+// One tap saves, a second tap unsaves, each with a short message. Nothing else is asked of the visitor.
 const saveBtn = $('saveBtn');
 let saved = false;
 let saveTimer = 0;
@@ -141,6 +158,7 @@ saveBtn.addEventListener('click', () => {
     clearTimeout(saveTimer);
     saveBtn.classList.remove('is-on', 'is-settled');
     try { localStorage.setItem('monkey-saved', '0'); } catch { /* blocked */ }
+    toast('Unsaved', 2000, 'unsaved');
     return;
   }
   saved = true;
@@ -150,13 +168,7 @@ saveBtn.addEventListener('click', () => {
   saveTimer = setTimeout(() => saveBtn.classList.add('is-settled'), SETTLE_MS);
   try { localStorage.setItem('monkey-saved', '1'); } catch { /* blocked */ }
   track('save');
-  const ua = navigator.userAgent;
-  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
-  if (standalone) return toast('Already saved to your home screen');
-  if (/iphone|ipad|ipod/i.test(ua)) return toast('Tap the Share button, then "Add to Home Screen"', 5200);
-  if (/android/i.test(ua)) return toast('Tap the menu (⋮), then "Add to Home screen"', 5200);
-  const mac = /mac/i.test(navigator.platform || ua);
-  toast(`Press ${mac ? '⌘' : 'Ctrl'} + D to bookmark this page`, 4500);
+  toast('Saved.', 2000, 'saved');                  // one tap, one message: no instructions to follow
 });
 
 /* ------------------------------------------------------------- comments -- */
