@@ -9,6 +9,7 @@ export default function handler(req, res) {
   let city = header('x-vercel-ip-city');                 // Vercel sends the city URL-encoded
   try { city = decodeURIComponent(city); } catch { /* leave it as received */ }
   city = city.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+  res.setHeader('Access-Control-Allow-Origin', '*');      // other projects' pages (Guess a Face, Armchair Lawyer) read this too
   res.setHeader('Cache-Control', 'private, max-age=3600');
   res.status(200).json({
     country: /^[A-Z]{2}$/.test(country) ? country : null,
